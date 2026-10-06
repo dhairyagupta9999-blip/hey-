@@ -50,9 +50,15 @@ class DeterministicAgentRouter(TaskRouter):
             "review",
             "claude",
         ),
+        # Browser operations & web navigation
+        (
+            re.compile(r"\b(browser|navigate|open tab|new tab|close tab|switch tab|open url|open website|fill form|submit form|webpage|web page|screenshot page)\b", re.IGNORECASE),
+            "browser_use",
+            "browser_agent",
+        ),
         # Research & web lookup
         (
-            re.compile(r"\b(research|hotels?|beachfront|find best|compare prices|web|lookup documentation|search online)\b", re.IGNORECASE),
+            re.compile(r"\b(research|hotels?|beachfront|find best|compare prices|compare laptops|compare these|web|lookup documentation|search online|investigate)\b", re.IGNORECASE),
             "research",
             "research_agent",
         ),

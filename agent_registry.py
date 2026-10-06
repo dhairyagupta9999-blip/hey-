@@ -155,16 +155,78 @@ class AgentRegistry:
             AgentMetadata(
                 name="research_agent",
                 provider="web_search",
-                capabilities=["research", "web_investigation", "synthesis"],
-                supported_tasks=["hotel_search", "documentation_lookup", "web_query"],
+                capabilities=[
+                    "research",
+                    "web_investigation",
+                    "synthesis",
+                    "fact_checking",
+                    "evidence_collection",
+                    "contradiction_detection",
+                ],
+                supported_tasks=[
+                    "hotel_search",
+                    "documentation_lookup",
+                    "web_query",
+                    "product_comparison",
+                    "error_investigation",
+                ],
                 cost="low",
                 speed="medium",
-                reliability=0.88,
+                reliability=0.92,
                 availability="available",
                 permissions=[TaskPermission.NETWORK_ACCESS],
-                adapter_class=None,
+                adapter_class="ResearchAgentAdapter",
             )
         )
+        try:
+            from browser_adapter import ResearchAgentAdapter
+            self.bind_adapter("research_agent", ResearchAgentAdapter())
+        except Exception:
+            pass
+
+        self.register_agent(
+            AgentMetadata(
+                name="browser_agent",
+                provider="cdp_browser",
+                capabilities=[
+                    "browser_use",
+                    "cdp",
+                    "web_navigation",
+                    "semantic_elements",
+                    "form_filling",
+                    "multi_tab",
+                    "screenshot",
+                    "sandboxed_download",
+                    "observe_act_verify",
+                ],
+                supported_tasks=[
+                    "navigate",
+                    "open_url",
+                    "multi_tab",
+                    "fill_form",
+                    "web_search",
+                    "download_file",
+                    "capture_screenshot",
+                ],
+                cost="free",
+                speed="fast",
+                reliability=0.95,
+                availability="available",
+                permissions=[
+                    TaskPermission.NETWORK_ACCESS,
+                    TaskPermission.READ_FILES,
+                    TaskPermission.WRITE_FILES,
+                ],
+                adapter_class="BrowserAgent",
+            )
+        )
+        try:
+            from browser_adapter import BrowserAgent
+            from browser_session import MockBrowserBackend
+            # Default to mock/lightweight backend for safe offline initialization
+            self.bind_adapter("browser_agent", BrowserAgent(backend=MockBrowserBackend()))
+        except Exception:
+            pass
 
         self.register_agent(
             AgentMetadata(

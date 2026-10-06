@@ -257,6 +257,38 @@ class TaskPlanner:
             graph.add_dependency(sub_syn.task_id, sub_b.task_id)
             graph.add_dependency(sub_ver.task_id, sub_syn.task_id)
 
+        # Pattern 2b: Browser navigation & interaction
+        elif any(w in goal_lower for w in ["browser", "navigate", "open tab", "fill form", "open url", "download file"]):
+            b1 = AgentTask(
+                task_id=f"{root_id}_launch_nav",
+                parent_task_id=root_id,
+                goal=f"Launch browser session and navigate: {goal}",
+                status=TaskStatus.QUEUED,
+            )
+            b2 = AgentTask(
+                task_id=f"{root_id}_inspect_dom",
+                parent_task_id=root_id,
+                goal="Inspect DOM structure and extract semantic elements",
+                status=TaskStatus.QUEUED,
+            )
+            b3 = AgentTask(
+                task_id=f"{root_id}_interact",
+                parent_task_id=root_id,
+                goal="Execute browser interaction (click, fill, download, or switch)",
+                status=TaskStatus.QUEUED,
+            )
+            b4 = AgentTask(
+                task_id=f"{root_id}_verify_state",
+                parent_task_id=root_id,
+                goal="Observe post-action page state and verify outcome",
+                status=TaskStatus.QUEUED,
+            )
+            for t in [b1, b2, b3, b4]:
+                graph.add_task(t)
+            graph.add_dependency(b2.task_id, b1.task_id)
+            graph.add_dependency(b3.task_id, b2.task_id)
+            graph.add_dependency(b4.task_id, b3.task_id)
+
         # Pattern 3: Open nth picture (Computer use)
         elif "picture" in goal_lower and ("open" in goal_lower or "fourth" in goal_lower):
             p1 = AgentTask(
