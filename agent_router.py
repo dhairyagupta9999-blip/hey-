@@ -62,10 +62,10 @@ class DeterministicAgentRouter(TaskRouter):
             "pc_control",
             "tier3_pc",
         ),
-        # File & desktop organization
+        # Windows computer use, wallpaper, settings, powershell, and filesystem organization
         (
-            re.compile(r"\b(organize|downloads|clean up files|move files|folder|rename files|archive)\b", re.IGNORECASE),
-            "filesystem",
+            re.compile(r"\b(wallpaper|dark mode|light mode|powershell|organize|downloads|clean up files|move files|folder|rename files|archive)\b", re.IGNORECASE),
+            "computer_use",
             "windows_agent",
         ),
     ]

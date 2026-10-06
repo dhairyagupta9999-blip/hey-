@@ -257,6 +257,148 @@ class TaskPlanner:
             graph.add_dependency(sub_syn.task_id, sub_b.task_id)
             graph.add_dependency(sub_ver.task_id, sub_syn.task_id)
 
+        # Pattern 3: Open nth picture (Computer use)
+        elif "picture" in goal_lower and ("open" in goal_lower or "fourth" in goal_lower):
+            p1 = AgentTask(
+                task_id=f"{root_id}_inspect_dir",
+                parent_task_id=root_id,
+                goal=f"Inspect Pictures directory for: {goal}",
+                status=TaskStatus.QUEUED,
+            )
+            p2 = AgentTask(
+                task_id=f"{root_id}_filter_images",
+                parent_task_id=root_id,
+                goal="Filter and sort supported image files",
+                status=TaskStatus.QUEUED,
+            )
+            p3 = AgentTask(
+                task_id=f"{root_id}_select_item",
+                parent_task_id=root_id,
+                goal="Select targeted picture by index",
+                status=TaskStatus.QUEUED,
+            )
+            p4 = AgentTask(
+                task_id=f"{root_id}_open_image",
+                parent_task_id=root_id,
+                goal="Open selected picture with default system viewer",
+                status=TaskStatus.QUEUED,
+            )
+            p5 = AgentTask(
+                task_id=f"{root_id}_verify_window",
+                parent_task_id=root_id,
+                goal="Verify image viewer window is active and displayed",
+                status=TaskStatus.QUEUED,
+            )
+            for t in [p1, p2, p3, p4, p5]:
+                graph.add_task(t)
+            graph.add_dependency(p2.task_id, p1.task_id)
+            graph.add_dependency(p3.task_id, p2.task_id)
+            graph.add_dependency(p4.task_id, p3.task_id)
+            graph.add_dependency(p5.task_id, p4.task_id)
+
+        # Pattern 4: Wallpaper change
+        elif "wallpaper" in goal_lower:
+            w1 = AgentTask(
+                task_id=f"{root_id}_locate_image",
+                parent_task_id=root_id,
+                goal="Locate target wallpaper image file",
+                status=TaskStatus.QUEUED,
+            )
+            w2 = AgentTask(
+                task_id=f"{root_id}_validate_image",
+                parent_task_id=root_id,
+                goal="Validate image format and disk accessibility",
+                status=TaskStatus.QUEUED,
+            )
+            w3 = AgentTask(
+                task_id=f"{root_id}_apply_wallpaper",
+                parent_task_id=root_id,
+                goal="Apply wallpaper via Windows SystemParametersInfo API",
+                status=TaskStatus.QUEUED,
+            )
+            w4 = AgentTask(
+                task_id=f"{root_id}_verify_wallpaper",
+                parent_task_id=root_id,
+                goal="Observe desktop and verify active wallpaper path",
+                status=TaskStatus.QUEUED,
+            )
+            for t in [w1, w2, w3, w4]:
+                graph.add_task(t)
+            graph.add_dependency(w2.task_id, w1.task_id)
+            graph.add_dependency(w3.task_id, w2.task_id)
+            graph.add_dependency(w4.task_id, w3.task_id)
+
+        # Pattern 5: Organize folder / Downloads
+        elif "organize" in goal_lower:
+            o1 = AgentTask(
+                task_id=f"{root_id}_scan_dir",
+                parent_task_id=root_id,
+                goal=f"Scan target directory for files: {goal}",
+                status=TaskStatus.QUEUED,
+            )
+            o2 = AgentTask(
+                task_id=f"{root_id}_categorize",
+                parent_task_id=root_id,
+                goal="Categorize files into Images, Documents, Archives, Installers, Code",
+                status=TaskStatus.QUEUED,
+            )
+            o3 = AgentTask(
+                task_id=f"{root_id}_preview_moves",
+                parent_task_id=root_id,
+                goal="Generate dry-run preview of proposed moves and rollback metadata",
+                status=TaskStatus.QUEUED,
+            )
+            o4 = AgentTask(
+                task_id=f"{root_id}_execute_moves",
+                parent_task_id=root_id,
+                goal="Execute file moves into category subdirectories",
+                status=TaskStatus.QUEUED,
+            )
+            o5 = AgentTask(
+                task_id=f"{root_id}_verify_organization",
+                parent_task_id=root_id,
+                goal="Verify moved files exist in destinations and source directory is organized",
+                status=TaskStatus.QUEUED,
+            )
+            for t in [o1, o2, o3, o4, o5]:
+                graph.add_task(t)
+            graph.add_dependency(o2.task_id, o1.task_id)
+            graph.add_dependency(o3.task_id, o2.task_id)
+            graph.add_dependency(o4.task_id, o3.task_id)
+            graph.add_dependency(o5.task_id, o4.task_id)
+
+        # Pattern 6: Application lifecycle (Open and close)
+        elif ("open" in goal_lower or "launch" in goal_lower) and "close" in goal_lower:
+            a1 = AgentTask(
+                task_id=f"{root_id}_launch_app",
+                parent_task_id=root_id,
+                goal=f"Launch application: {goal}",
+                status=TaskStatus.QUEUED,
+            )
+            a2 = AgentTask(
+                task_id=f"{root_id}_wait_readiness",
+                parent_task_id=root_id,
+                goal="Wait for application readiness and verify window",
+                status=TaskStatus.QUEUED,
+            )
+            a3 = AgentTask(
+                task_id=f"{root_id}_close_app",
+                parent_task_id=root_id,
+                goal="Gracefully close application window",
+                status=TaskStatus.QUEUED,
+            )
+            a4 = AgentTask(
+                task_id=f"{root_id}_verify_closed",
+                parent_task_id=root_id,
+                goal="Verify application process and window have terminated",
+                status=TaskStatus.QUEUED,
+            )
+            for t in [a1, a2, a3, a4]:
+                graph.add_task(t)
+            graph.add_dependency(a2.task_id, a1.task_id)
+            graph.add_dependency(a3.task_id, a2.task_id)
+            graph.add_dependency(a4.task_id, a3.task_id)
+
         # Default: Two-stage plan -> execute & verify
         else:
             step_exec = AgentTask(

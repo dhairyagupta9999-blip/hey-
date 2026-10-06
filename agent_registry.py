@@ -170,20 +170,48 @@ class AgentRegistry:
             AgentMetadata(
                 name="windows_agent",
                 provider="system",
-                capabilities=["filesystem", "applications", "settings", "file_organize"],
-                supported_tasks=["organize_downloads", "file_search", "folder_cleanup"],
+                capabilities=[
+                    "computer_use",
+                    "windows_ui",
+                    "filesystem",
+                    "application_control",
+                    "window_management",
+                    "settings",
+                    "wallpaper",
+                    "powershell",
+                    "observation",
+                    "verification",
+                    "dry_run",
+                    "file_organize",
+                ],
+                supported_tasks=[
+                    "open_picture",
+                    "change_wallpaper",
+                    "dark_mode",
+                    "organize_downloads",
+                    "window_control",
+                    "application_lifecycle",
+                    "powershell_execution",
+                    "folder_cleanup",
+                ],
                 cost="free",
                 speed="fast",
-                reliability=0.95,
+                reliability=0.97,
                 availability="available",
                 permissions=[
                     TaskPermission.READ_FILES,
                     TaskPermission.WRITE_FILES,
                     TaskPermission.CHANGE_SETTINGS,
+                    TaskPermission.EXECUTE_COMMAND,
                 ],
-                adapter_class=None,
+                adapter_class="WindowsComputerAdapter",
             )
         )
+        try:
+            from windows_computer_adapter import WindowsComputerAdapter
+            self.bind_adapter("windows_agent", WindowsComputerAdapter())
+        except Exception:
+            pass
 
     def register_agent(self, metadata: AgentMetadata, adapter: Optional[AgentAdapter] = None) -> None:
         """Register an agent metadata record and optional adapter instance."""
