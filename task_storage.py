@@ -115,6 +115,36 @@ class TaskStorage:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_task ON task_audit_log(task_id);")
+
+            # Migration for owner_agent and delegated_agents
+            try:
+                conn.execute("ALTER TABLE tasks ADD COLUMN owner_agent TEXT DEFAULT 'jev_orchestrator';")
+            except Exception:
+                pass
+            try:
+                conn.execute("ALTER TABLE tasks ADD COLUMN delegated_agents_json TEXT DEFAULT '[]';")
+            except Exception:
+                pass
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS missions (
+                    mission_id TEXT PRIMARY KEY,
+                    title TEXT,
+                    description TEXT,
+                    status TEXT,
+                    created_at REAL,
+                    updated_at REAL,
+                    task_ids_json TEXT,
+                    active_agents_json TEXT,
+                    timeline_json TEXT,
+                    context_json TEXT,
+                    summary TEXT,
+                    progress_percent REAL,
+                    pause_reason TEXT,
+                    cancel_reason TEXT
+                );
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_missions_status ON missions(status);")
             conn.commit()
 
     def save_task(self, task: AgentTask) -> None:
@@ -128,7 +158,7 @@ class TaskStorage:
                     errors_json, recommendations_json, next_action, confidence,
                     requires_approval, approval_state, retry_count, max_retries,
                     timestamps_json, cancellation_state_json, permissions_json,
-                    dependencies_json
+                    dependencies_json, owner_agent, delegated_agents_json
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?,
@@ -136,7 +166,7 @@ class TaskStorage:
                     ?, ?, ?, ?,
                     ?, ?, ?, ?,
                     ?, ?, ?,
-                    ?
+                    ?, ?, ?
                 );
             """, (
                 task.task_id,
@@ -165,6 +195,8 @@ class TaskStorage:
                 json.dumps(task.cancellation_state),
                 json.dumps([p.value for p in task.permissions]),
                 json.dumps(task.dependencies),
+                task.owner_agent,
+                json.dumps(task.delegated_agents),
             ))
             conn.commit()
 
@@ -197,7 +229,97 @@ class TaskStorage:
             "permissions": json.loads(row["permissions_json"] or "[]"),
             "dependencies": json.loads(row["dependencies_json"] or "[]"),
         }
+        if "owner_agent" in row.keys() and row["owner_agent"]:
+            data["owner_agent"] = row["owner_agent"]
+        if "delegated_agents_json" in row.keys() and row["delegated_agents_json"]:
+            data["delegated_agents"] = json.loads(row["delegated_agents_json"] or "[]")
         return AgentTask.from_dict(data)
+
+    def save_mission(self, mission: Any) -> None:
+        """Insert or replace a Mission in the database."""
+        with self._lock, self._get_connection() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO missions (
+                    mission_id, title, description, status, created_at, updated_at,
+                    task_ids_json, active_agents_json, timeline_json, context_json,
+                    summary, progress_percent, pause_reason, cancel_reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """, (
+                mission.mission_id,
+                mission.title,
+                mission.description,
+                mission.status.value if hasattr(mission.status, "value") else str(mission.status),
+                mission.created_at,
+                mission.updated_at,
+                json.dumps(mission.task_ids),
+                json.dumps(mission.active_agents),
+                json.dumps([t.to_dict() if hasattr(t, "to_dict") else t for t in mission.timeline]),
+                json.dumps(mission.context),
+                mission.summary,
+                mission.progress_percent,
+                mission.pause_reason,
+                mission.cancel_reason,
+            ))
+            conn.commit()
+
+    def get_mission(self, mission_id: str) -> Optional[Any]:
+        """Fetch mission by ID."""
+        from mission import Mission
+        with self._lock, self._get_connection() as conn:
+            cur = conn.execute("SELECT * FROM missions WHERE mission_id = ?;", (mission_id,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            data = {
+                "mission_id": row["mission_id"],
+                "title": row["title"] or "",
+                "description": row["description"] or "",
+                "status": row["status"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "task_ids": json.loads(row["task_ids_json"] or "[]"),
+                "active_agents": json.loads(row["active_agents_json"] or "[]"),
+                "timeline": json.loads(row["timeline_json"] or "[]"),
+                "context": json.loads(row["context_json"] or "{}"),
+                "summary": row["summary"] or "",
+                "progress_percent": row["progress_percent"] or 0.0,
+                "pause_reason": row["pause_reason"],
+                "cancel_reason": row["cancel_reason"],
+            }
+            return Mission.from_dict(data)
+
+    def list_missions(self, status: Optional[Any] = None) -> List[Any]:
+        """List missions with optional status filter."""
+        from mission import Mission
+        query = "SELECT * FROM missions WHERE 1=1"
+        params: List[Any] = []
+        if status is not None:
+            query += " AND status = ?"
+            params.append(status.value if hasattr(status, "value") else str(status))
+        query += " ORDER BY created_at ASC;"
+
+        with self._lock, self._get_connection() as conn:
+            cur = conn.execute(query, params)
+            missions = []
+            for row in cur.fetchall():
+                data = {
+                    "mission_id": row["mission_id"],
+                    "title": row["title"] or "",
+                    "description": row["description"] or "",
+                    "status": row["status"],
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                    "task_ids": json.loads(row["task_ids_json"] or "[]"),
+                    "active_agents": json.loads(row["active_agents_json"] or "[]"),
+                    "timeline": json.loads(row["timeline_json"] or "[]"),
+                    "context": json.loads(row["context_json"] or "{}"),
+                    "summary": row["summary"] or "",
+                    "progress_percent": row["progress_percent"] or 0.0,
+                    "pause_reason": row["pause_reason"],
+                    "cancel_reason": row["cancel_reason"],
+                }
+                missions.append(Mission.from_dict(data))
+            return missions
 
     def get_task(self, task_id: str) -> Optional[AgentTask]:
         """Fetch task by ID."""
@@ -227,6 +349,10 @@ class TaskStorage:
         with self._lock, self._get_connection() as conn:
             cur = conn.execute(query, params)
             return [self._row_to_task(row) for row in cur.fetchall()]
+
+    def get_tasks_by_status(self, status: TaskStatus) -> List[AgentTask]:
+        """Alias to list_tasks filtered by status."""
+        return self.list_tasks(status=status)
 
     def get_unfinished_tasks(self) -> List[AgentTask]:
         """Return tasks that were in-flight (not COMPLETED, FAILED, or CANCELLED)."""
@@ -282,6 +408,10 @@ class TaskStorage:
                     "created_at": r["created_at"],
                 })
             return records
+
+    def get_audit_trail(self, task_id: str) -> List[Dict[str, Any]]:
+        """Alias for get_audit_history."""
+        return self.get_audit_history(task_id)
 
     def save_result(self, task_id: str, agent_name: str, result: AgentResult) -> None:
         """Persist structured AgentResult."""

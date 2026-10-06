@@ -114,8 +114,10 @@ class AgentTask:
     priority: TaskPriority = TaskPriority.NORMAL
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
+    owner_agent: str = "jev_orchestrator"
     current_agent: Optional[str] = None
     assigned_agents: List[str] = field(default_factory=list)
+    delegated_agents: List[str] = field(default_factory=list)
     context: Dict[str, Any] = field(default_factory=dict)
     inputs: Dict[str, Any] = field(default_factory=dict)
     outputs: Dict[str, Any] = field(default_factory=dict)
@@ -226,8 +228,10 @@ class AgentTask:
             "priority": self.priority.value,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "owner_agent": self.owner_agent,
             "current_agent": self.current_agent,
             "assigned_agents": list(self.assigned_agents),
+            "delegated_agents": list(self.delegated_agents),
             "context": self.context,
             "inputs": self.inputs,
             "outputs": self.outputs,

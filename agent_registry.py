@@ -30,6 +30,26 @@ class AgentMetadata:
     supports_background: bool = True
     health_status: str = "healthy"  # "healthy", "unhealthy", "unknown"
     adapter_class: Optional[str] = None
+    capability_card: Optional[Any] = None
+
+    def get_capability_card(self) -> Any:
+        from agent_capability import AgentCapabilityCard
+        if self.capability_card:
+            return self.capability_card
+        return AgentCapabilityCard(
+            agent_id=self.name,
+            name=self.name,
+            provider=self.provider,
+            capabilities=list(self.capabilities),
+            permissions=list(self.permissions),
+            cost_class=self.cost,
+            latency_class=self.speed,
+            reliability=self.reliability,
+            availability=self.availability,
+            supports_streaming=self.supports_streaming,
+            supports_background=self.supports_background,
+            health_status=self.health_status,
+        )
 
     def __post_init__(self) -> None:
         normalized: List[TaskPermission] = []
@@ -280,6 +300,33 @@ class AgentRegistry:
         self._agents[metadata.name] = metadata
         if adapter is not None:
             self._adapters[metadata.name] = adapter
+
+    def register_card(self, card: Any, adapter: Optional[AgentAdapter] = None) -> None:
+        """Register an agent capability card."""
+        meta = AgentMetadata(
+            name=card.name,
+            provider=card.provider,
+            capabilities=list(card.capabilities),
+            cost=card.cost_class,
+            speed=card.latency_class,
+            reliability=card.reliability,
+            availability=card.availability,
+            permissions=list(card.permissions),
+            supports_streaming=card.supports_streaming,
+            supports_background=card.supports_background,
+            health_status=card.health_status,
+            capability_card=card,
+        )
+        self.register_agent(meta, adapter)
+
+    def get_card(self, name: str) -> Optional[Any]:
+        """Fetch capability card for a registered agent."""
+        agent = self.get_agent(name)
+        return agent.get_capability_card() if agent else None
+
+    def list_cards(self) -> List[Any]:
+        """List all capability cards for registered agents."""
+        return [a.get_capability_card() for a in self._agents.values()]
 
     def unregister_agent(self, name: str) -> bool:
         """Remove an agent from the registry."""

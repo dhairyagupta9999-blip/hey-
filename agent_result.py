@@ -16,6 +16,7 @@ class AgentResultStatus(str, Enum):
     SUCCESS = "SUCCESS"
     PARTIAL = "PARTIAL"
     FAILURE = "FAILURE"
+    FAILED = "FAILURE"  # Alias for backward-compat / developer ergonomics
     BLOCKED = "BLOCKED"
     NEEDS_APPROVAL = "NEEDS_APPROVAL"
 
