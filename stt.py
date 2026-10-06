@@ -70,11 +70,55 @@ def load_vocabulary_words() -> list[str]:
     return deduped
 
 
+DEFAULT_INITIAL_PROMPT = "Hey Jev, a command for my Windows assistant."
+
+def get_default_initial_prompt() -> str:
+    """Return default initial prompt for faster-whisper (single natural sentence)."""
+    return DEFAULT_INITIAL_PROMPT
+
+def get_default_hotwords() -> str:
+    """Build a deterministic, bounded hotwords string from base keywords and app index.
+    
+    Includes base command phrase 'Jev lock the screen' and dynamically appends
+    sanitized high-priority application names (max 15) without leaking paths,
+    usernames, or unrelated metadata.
+    """
+    base_phrase = "Jev lock the screen"
+    try:
+        import app_index
+        import getpass
+        import re
+        
+        idx = app_index.get_app_index()
+        curr_user = getpass.getuser().lower()
+        candidates = []
+        for app in idx.apps:
+            p = app.get("priority", 0)
+            name = app.get("name", "").strip()
+            if p >= 80 or name.lower() in ("notepad", "calculator", "task manager", "settings", "command prompt"):
+                if re.match(r"^[A-Za-z0-9][A-Za-z0-9 ]{1,24}$", name):
+                    n_low = name.lower()
+                    if curr_user not in n_low and not any(ext in n_low for ext in (".exe", ".lnk", ".bat", "\\", "/", ":")):
+                        candidates.append(name)
+        unique_sorted = sorted(list(dict.fromkeys(candidates)))[:15]
+        if unique_sorted:
+            return f"{base_phrase} " + " ".join(unique_sorted)
+        return base_phrase
+    except Exception:
+        return base_phrase
+
+
 class STTBackend(ABC):
     """Abstract speech-to-text backend interface."""
 
     @abstractmethod
-    def transcribe(self, audio: np.ndarray, prompt: str | None = None, drop_noise: bool = False) -> tuple[str, int]:
+    def transcribe(
+        self,
+        audio: np.ndarray,
+        prompt: str | None = None,
+        drop_noise: bool = False,
+        hotwords: str | None = None
+    ) -> tuple[str, int]:
         """Transcribe 16 kHz mono float32 numpy audio. Returns (text, latency_ms)."""
         pass
 
@@ -87,9 +131,16 @@ class STTBackend(ABC):
 class FasterWhisperBackend(STTBackend):
     """Faster-whisper on-device speech-to-text engine (tiny.en, base.en, small.en)."""
 
-    def __init__(self, model_size: str = "small.en"):
+    def __init__(
+        self,
+        model_size: str = "small.en",
+        initial_prompt: str | None = DEFAULT_INITIAL_PROMPT,
+        hotwords: str | None = None
+    ):
         self.model_size = model_size
         self._model = None
+        self.initial_prompt = initial_prompt
+        self.hotwords = hotwords
 
     def get_model(self):
         if self._model is None:
@@ -111,23 +162,39 @@ class FasterWhisperBackend(STTBackend):
         except Exception as exc:
             print(f"  [stt] Whisper warmup warning: {exc}")
 
-    def transcribe(self, audio: np.ndarray, prompt: str | None = None, drop_noise: bool = False) -> tuple[str, int]:
+    def transcribe(
+        self,
+        audio: np.ndarray,
+        prompt: str | None = None,
+        drop_noise: bool = False,
+        hotwords: str | None = None
+    ) -> tuple[str, int]:
         t0 = time.time()
         audio_secs = len(audio) / float(SAMPLE_RATE) if len(audio) else 0.0
         trimmed_audio = trim_silence(audio)
+        if trimmed_audio.dtype != np.float32:
+            trimmed_audio = trimmed_audio.astype(np.float32)
         trimmed_secs = len(trimmed_audio) / float(SAMPLE_RATE) if len(trimmed_audio) else 0.0
 
+        # Effective prompt and hotwords
+        effective_prompt = prompt if prompt is not None else self.initial_prompt
+        effective_hotwords = hotwords if hotwords is not None else self.hotwords
+
         model = self.get_model()
-        segs, _ = model.transcribe(
-            trimmed_audio,
-            language="en",
-            beam_size=1,
-            best_of=1,
-            vad_filter=True,
-            initial_prompt=prompt,
-            without_timestamps=True,
-            condition_on_previous_text=False
-        )
+        transcribe_kwargs = {
+            "language": "en",
+            "beam_size": 1,
+            "best_of": 1,
+            "vad_filter": True,
+            "without_timestamps": True,
+            "condition_on_previous_text": False
+        }
+        if effective_prompt:
+            transcribe_kwargs["initial_prompt"] = effective_prompt
+        if effective_hotwords:
+            transcribe_kwargs["hotwords"] = effective_hotwords
+
+        segs, _ = model.transcribe(trimmed_audio, **transcribe_kwargs)
         segs = [s for s in segs if not drop_noise or s.no_speech_prob <= NO_SPEECH_MAX]
         text = " ".join(s.text.strip() for s in segs).strip()
         latency_ms = int((time.time() - t0) * 1000)
@@ -137,6 +204,7 @@ class FasterWhisperBackend(STTBackend):
 
 class WhistleBackend(STTBackend):
     """Whistle (Cactus Compute) on-device speech-to-text engine with keyword biasing."""
+
 
     def __init__(self, fallback_model_size: str = "small.en"):
         self.fallback = FasterWhisperBackend(model_size=fallback_model_size)
@@ -169,9 +237,15 @@ class WhistleBackend(STTBackend):
                 print(f"  [stt] Whistle warmup failed: {exc}, warming fallback Whisper...")
         self.fallback.warmup()
 
-    def transcribe(self, audio: np.ndarray, prompt: str | None = None, drop_noise: bool = False) -> tuple[str, int]:
+    def transcribe(
+        self,
+        audio: np.ndarray,
+        prompt: str | None = None,
+        drop_noise: bool = False,
+        hotwords: str | None = None
+    ) -> tuple[str, int]:
         if self._needle is None:
-            return self.fallback.transcribe(audio, prompt, drop_noise)
+            return self.fallback.transcribe(audio, prompt=prompt, drop_noise=drop_noise, hotwords=hotwords)
 
         t0 = time.time()
         audio_secs = len(audio) / float(SAMPLE_RATE) if len(audio) else 0.0
@@ -185,13 +259,18 @@ class WhistleBackend(STTBackend):
             return text, latency_ms
         except Exception as exc:
             print(f"  [stt] Whistle runtime failure: {exc}. Falling back to faster-whisper.")
-            return self.fallback.transcribe(audio, prompt, drop_noise)
+            return self.fallback.transcribe(audio, prompt=prompt, drop_noise=drop_noise, hotwords=hotwords)
 
 
 _ACTIVE_BACKEND: STTBackend | None = None
-_ACTIVE_CONFIG: tuple[str, str] | None = None
+_ACTIVE_CONFIG: tuple[str, str, str | None, str | None] | None = None
 
-def get_stt_backend(engine: str | None = None, whisper_model: str | None = None) -> STTBackend:
+def get_stt_backend(
+    engine: str | None = None,
+    whisper_model: str | None = None,
+    initial_prompt: str | None = None,
+    hotwords: str | None = None
+) -> STTBackend:
     """Resolve and return active STT backend instance."""
     global _ACTIVE_BACKEND, _ACTIVE_CONFIG
 
@@ -219,7 +298,31 @@ def get_stt_backend(engine: str | None = None, whisper_model: str | None = None)
     if not whisper_model:
         whisper_model = WHISPER_MODEL
 
-    config_key = (engine.lower(), whisper_model.lower())
+    # Resolve initial prompt
+    if initial_prompt is None:
+        prompt_env = os.environ.get("HEYJEV_STT_PROMPT")
+        if prompt_env in ("0", "false", "none", "no"):
+            active_prompt = None
+        elif prompt_env:
+            active_prompt = prompt_env
+        else:
+            active_prompt = DEFAULT_INITIAL_PROMPT
+    else:
+        active_prompt = initial_prompt
+
+    # Resolve hotwords
+    if hotwords is None:
+        hw_env = os.environ.get("HEYJEV_STT_HOTWORDS")
+        if hw_env == "1":
+            active_hotwords = get_default_hotwords()
+        elif hw_env and hw_env not in ("0", "false", "none", "no"):
+            active_hotwords = hw_env
+        else:
+            active_hotwords = None
+    else:
+        active_hotwords = hotwords
+
+    config_key = (engine.lower(), whisper_model.lower(), active_prompt, active_hotwords)
     if _ACTIVE_BACKEND is not None and _ACTIVE_CONFIG == config_key:
         return _ACTIVE_BACKEND
 
@@ -228,17 +331,35 @@ def get_stt_backend(engine: str | None = None, whisper_model: str | None = None)
             backend = WhistleBackend(fallback_model_size=whisper_model)
         except Exception as exc:
             print(f"  [stt] Whistle backend creation failed: {exc}, using faster-whisper")
-            backend = FasterWhisperBackend(model_size=whisper_model)
+            backend = FasterWhisperBackend(
+                model_size=whisper_model,
+                initial_prompt=active_prompt,
+                hotwords=active_hotwords
+            )
     else:
-        backend = FasterWhisperBackend(model_size=whisper_model)
+        backend = FasterWhisperBackend(
+            model_size=whisper_model,
+            initial_prompt=active_prompt,
+            hotwords=active_hotwords
+        )
 
     _ACTIVE_BACKEND = backend
     _ACTIVE_CONFIG = config_key
     return _ACTIVE_BACKEND
 
-def transcribe_audio(audio: np.ndarray, prompt: str | None = None, drop_noise: bool = False) -> tuple[str, int]:
+def transcribe_audio(
+    audio: np.ndarray,
+    prompt: str | None = None,
+    drop_noise: bool = False,
+    hotwords: str | None = None
+) -> tuple[str, int]:
     """Transcribe audio chunk via active STT backend. Returns (text, latency_ms)."""
-    return get_stt_backend().transcribe(audio, prompt=prompt, drop_noise=drop_noise)
+    return get_stt_backend().transcribe(
+        audio,
+        prompt=prompt,
+        drop_noise=drop_noise,
+        hotwords=hotwords
+    )
 
 def warmup_whisper() -> None:
     """Warm up the active STT backend at startup."""
@@ -252,5 +373,6 @@ def get_whisper_model():
     if isinstance(backend, WhistleBackend):
         return backend.fallback.get_model()
     return None
+
 
 
