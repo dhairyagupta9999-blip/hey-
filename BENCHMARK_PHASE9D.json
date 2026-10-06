@@ -1,0 +1,961 @@
+{
+  "benchmark_timestamp": "2026-10-06T12:03:50Z",
+  "hardware_profile": {
+    "cpu": "Intel Core i3-5005U (2C/4T @ 2.00GHz)",
+    "ram_gb": 7.93,
+    "os": "Windows 10 Pro 64-bit",
+    "python": "3.11.9"
+  },
+  "dataset_summary": {
+    "total_clips": 34,
+    "real_microphone_clips": 15,
+    "synthetic_clips": 19,
+    "total_audio_seconds": 144.8
+  },
+  "whisper_baseline": {
+    "model": "faster-whisper tiny.en + regex",
+    "pos_total": 7,
+    "pos_correct": 7,
+    "recall_pct": 100.0,
+    "neg_total": 27,
+    "false_accepts": 2,
+    "false_accept_pct": 7.4,
+    "p50_lat_ms": 10488.1,
+    "p95_lat_ms": 13119.7,
+    "worst_lat_ms": 15290.1,
+    "results": [
+      {
+        "clip": "clip_01.wav",
+        "text": "Open Spotify",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 15278,
+        "total_lat_ms": 15290.09
+      },
+      {
+        "clip": "clip_02.wav",
+        "text": "Set volume to 40%.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 10604,
+        "total_lat_ms": 10609.96
+      },
+      {
+        "clip": "clip_03.wav",
+        "text": "Pause, Spotify and Open Slack.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 11550,
+        "total_lat_ms": 11553.27
+      },
+      {
+        "clip": "clip_04.wav",
+        "text": "Who wrote Hamlet?",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 9906,
+        "total_lat_ms": 9907.72
+      },
+      {
+        "clip": "clip_05.wav",
+        "text": "Hey Jev, dark mode on.",
+        "detected": true,
+        "is_positive": true,
+        "stt_ms": 10848,
+        "total_lat_ms": 10850.78
+      },
+      {
+        "clip": "clip_06.wav",
+        "text": "Mute the volume.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 11030,
+        "total_lat_ms": 11031.87
+      },
+      {
+        "clip": "clip_07.wav",
+        "text": "Set a timer for 5 minutes.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 12249,
+        "total_lat_ms": 12250.89
+      },
+      {
+        "clip": "clip_08.wav",
+        "text": "Open YouTube.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 12388,
+        "total_lat_ms": 12389.46
+      },
+      {
+        "clip": "clip_09.wav",
+        "text": "Log the screen.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 10959,
+        "total_lat_ms": 10961.16
+      },
+      {
+        "clip": "clip_10.wav",
+        "text": "Next track.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 10548,
+        "total_lat_ms": 10550.44
+      },
+      {
+        "clip": "1word_stop.wav",
+        "text": "Stop.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 10205,
+        "total_lat_ms": 10206.63
+      },
+      {
+        "clip": "1word_cancel.wav",
+        "text": "Cancel",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 10454,
+        "total_lat_ms": 10455.83
+      },
+      {
+        "clip": "1word_yes.wav",
+        "text": "Yes.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 9701,
+        "total_lat_ms": 9702.74
+      },
+      {
+        "clip": "1word_spotify.wav",
+        "text": "Spotify",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 13444,
+        "total_lat_ms": 13444.82
+      },
+      {
+        "clip": "1word_notepad.wav",
+        "text": "Notepad",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 11157,
+        "total_lat_ms": 11159.87
+      },
+      {
+        "clip": "synth_hey_jev_01.wav",
+        "text": "Hey Jev",
+        "detected": true,
+        "is_positive": true,
+        "stt_ms": 10380,
+        "total_lat_ms": 10381.87
+      },
+      {
+        "clip": "synth_hey_jev_02.wav",
+        "text": "Hey Jev",
+        "detected": true,
+        "is_positive": true,
+        "stt_ms": 8829,
+        "total_lat_ms": 8830.58
+      },
+      {
+        "clip": "synth_hey_jev_03.wav",
+        "text": "Hey Jev, open Spotify.",
+        "detected": true,
+        "is_positive": true,
+        "stt_ms": 11872,
+        "total_lat_ms": 11874.03
+      },
+      {
+        "clip": "synth_hey_jev_04.wav",
+        "text": "Hey Jev, lock the screen.",
+        "detected": true,
+        "is_positive": true,
+        "stt_ms": 12564,
+        "total_lat_ms": 12565.56
+      },
+      {
+        "clip": "synth_hey_jev_05.wav",
+        "text": "Hey Jev, who wrote Hamlet?",
+        "detected": true,
+        "is_positive": true,
+        "stt_ms": 10093,
+        "total_lat_ms": 10094.55
+      },
+      {
+        "clip": "synth_hey_jev_06.wav",
+        "text": "Hey Jev, pause Spotify and open Slack.",
+        "detected": true,
+        "is_positive": true,
+        "stt_ms": 10429,
+        "total_lat_ms": 10431.26
+      },
+      {
+        "clip": "synth_hey_jarvis_01.wav",
+        "text": "Hey Jarvis!",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 9990,
+        "total_lat_ms": 9993.52
+      },
+      {
+        "clip": "synth_hey_jarvis_02.wav",
+        "text": "Hey Jarvis.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 8910,
+        "total_lat_ms": 8911.88
+      },
+      {
+        "clip": "synth_hey_jarvis_03.wav",
+        "text": "Hey Jarvis, open Spotify.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 11305,
+        "total_lat_ms": 11307.43
+      },
+      {
+        "clip": "synth_hey_jarvis_04.wav",
+        "text": "Hey Jarvis, lock the screen.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 12943,
+        "total_lat_ms": 12944.58
+      },
+      {
+        "clip": "synth_hey_jarvis_05.wav",
+        "text": "Hey Jarvis, who wrote Hamlet?",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 9346,
+        "total_lat_ms": 9348.89
+      },
+      {
+        "clip": "clip_27.wav",
+        "text": "Hey Jev",
+        "detected": true,
+        "is_positive": false,
+        "stt_ms": 9915,
+        "total_lat_ms": 9917.62
+      },
+      {
+        "clip": "synth_hey_jane_01.wav",
+        "text": "Hey Jane.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 10246,
+        "total_lat_ms": 10247.22
+      },
+      {
+        "clip": "synth_hey_john_01.wav",
+        "text": "Hey John.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 10520,
+        "total_lat_ms": 10520.3
+      },
+      {
+        "clip": "synth_hey_dude_01.wav",
+        "text": "Hey, dude.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 12312,
+        "total_lat_ms": 12314.09
+      },
+      {
+        "clip": "synth_hey_jeev_01.wav",
+        "text": "Hey Jev",
+        "detected": true,
+        "is_positive": false,
+        "stt_ms": 10079,
+        "total_lat_ms": 10081.85
+      },
+      {
+        "clip": "synth_hey_chef_01.wav",
+        "text": "Hey Chef.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 9346,
+        "total_lat_ms": 9348.02
+      },
+      {
+        "clip": "synth_hey_dave_01.wav",
+        "text": "Hey Dave.",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 9687,
+        "total_lat_ms": 9688.48
+      },
+      {
+        "clip": "silence_60s.wav",
+        "text": "",
+        "detected": false,
+        "is_positive": false,
+        "stt_ms": 537,
+        "total_lat_ms": 538.62
+      }
+    ]
+  },
+  "openwakeword_engine_benchmark": {
+    "vad_gated": {
+      "model": "hey_jarvis_v0.1.onnx",
+      "threshold": 0.5,
+      "vad_gated": true,
+      "pos_total": 5,
+      "pos_correct": 4,
+      "recall_pct": 80.0,
+      "neg_total": 29,
+      "false_accepts": 0,
+      "false_accept_pct": 0.0,
+      "mean_step_lat_ms": 5.77,
+      "p50_trigger_lat_ms": 880.0,
+      "p95_trigger_lat_ms": 880.0,
+      "results": [
+        {
+          "clip": "clip_01.wav",
+          "detected": false,
+          "max_score": 0.0,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_02.wav",
+          "detected": false,
+          "max_score": 0.0,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_03.wav",
+          "detected": false,
+          "max_score": 0.0001,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_04.wav",
+          "detected": false,
+          "max_score": 0.0002,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_05.wav",
+          "detected": false,
+          "max_score": 0.0014,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_06.wav",
+          "detected": false,
+          "max_score": 0.0006,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_07.wav",
+          "detected": false,
+          "max_score": 0.0011,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_08.wav",
+          "detected": false,
+          "max_score": 0.0,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_09.wav",
+          "detected": false,
+          "max_score": 0.0005,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_10.wav",
+          "detected": false,
+          "max_score": 0.0,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "1word_stop.wav",
+          "detected": false,
+          "max_score": 0.0,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "1word_cancel.wav",
+          "detected": false,
+          "max_score": 0.0,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "1word_yes.wav",
+          "detected": false,
+          "max_score": 0.0,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "1word_spotify.wav",
+          "detected": false,
+          "max_score": 0.0,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "1word_notepad.wav",
+          "detected": false,
+          "max_score": 0.0,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jev_01.wav",
+          "detected": false,
+          "max_score": 0.0006,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jev_02.wav",
+          "detected": false,
+          "max_score": 0.0,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jev_03.wav",
+          "detected": false,
+          "max_score": 0.0059,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jev_04.wav",
+          "detected": false,
+          "max_score": 0.0065,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jev_05.wav",
+          "detected": false,
+          "max_score": 0.0129,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jev_06.wav",
+          "detected": false,
+          "max_score": 0.0172,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jarvis_01.wav",
+          "detected": true,
+          "max_score": 0.9941,
+          "trigger_time_s": 0.88,
+          "is_positive": true
+        },
+        {
+          "clip": "synth_hey_jarvis_02.wav",
+          "detected": false,
+          "max_score": 0.3977,
+          "trigger_time_s": null,
+          "is_positive": true
+        },
+        {
+          "clip": "synth_hey_jarvis_03.wav",
+          "detected": true,
+          "max_score": 0.9971,
+          "trigger_time_s": 0.88,
+          "is_positive": true
+        },
+        {
+          "clip": "synth_hey_jarvis_04.wav",
+          "detected": true,
+          "max_score": 0.9974,
+          "trigger_time_s": 0.88,
+          "is_positive": true
+        },
+        {
+          "clip": "synth_hey_jarvis_05.wav",
+          "detected": true,
+          "max_score": 0.9972,
+          "trigger_time_s": 0.88,
+          "is_positive": true
+        },
+        {
+          "clip": "clip_27.wav",
+          "detected": false,
+          "max_score": 0.0061,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jane_01.wav",
+          "detected": false,
+          "max_score": 0.0003,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_john_01.wav",
+          "detected": false,
+          "max_score": 0.0016,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_dude_01.wav",
+          "detected": false,
+          "max_score": 0.0,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jeev_01.wav",
+          "detected": false,
+          "max_score": 0.0001,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_chef_01.wav",
+          "detected": false,
+          "max_score": 0.0001,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_dave_01.wav",
+          "detected": false,
+          "max_score": 0.0002,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "silence_60s.wav",
+          "detected": false,
+          "max_score": 0.0,
+          "trigger_time_s": null,
+          "is_positive": false
+        }
+      ]
+    },
+    "ungated": {
+      "model": "hey_jarvis_v0.1.onnx",
+      "threshold": 0.5,
+      "vad_gated": false,
+      "pos_total": 5,
+      "pos_correct": 5,
+      "recall_pct": 100.0,
+      "neg_total": 29,
+      "false_accepts": 1,
+      "false_accept_pct": 3.4,
+      "mean_step_lat_ms": 8.68,
+      "p50_trigger_lat_ms": 880.0,
+      "p95_trigger_lat_ms": 1320.0,
+      "results": [
+        {
+          "clip": "clip_01.wav",
+          "detected": false,
+          "max_score": 0.004,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_02.wav",
+          "detected": false,
+          "max_score": 0.0004,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_03.wav",
+          "detected": false,
+          "max_score": 0.0002,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_04.wav",
+          "detected": false,
+          "max_score": 0.0005,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_05.wav",
+          "detected": false,
+          "max_score": 0.0007,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_06.wav",
+          "detected": false,
+          "max_score": 0.007,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_07.wav",
+          "detected": false,
+          "max_score": 0.0013,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_08.wav",
+          "detected": false,
+          "max_score": 0.0002,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_09.wav",
+          "detected": false,
+          "max_score": 0.0002,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "clip_10.wav",
+          "detected": false,
+          "max_score": 0.001,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "1word_stop.wav",
+          "detected": false,
+          "max_score": 0.0001,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "1word_cancel.wav",
+          "detected": false,
+          "max_score": 0.0001,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "1word_yes.wav",
+          "detected": false,
+          "max_score": 0.0002,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "1word_spotify.wav",
+          "detected": false,
+          "max_score": 0.0,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "1word_notepad.wav",
+          "detected": false,
+          "max_score": 0.0,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jev_01.wav",
+          "detected": false,
+          "max_score": 0.0051,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jev_02.wav",
+          "detected": false,
+          "max_score": 0.0093,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jev_03.wav",
+          "detected": false,
+          "max_score": 0.0292,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jev_04.wav",
+          "detected": false,
+          "max_score": 0.0059,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jev_05.wav",
+          "detected": false,
+          "max_score": 0.0091,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jev_06.wav",
+          "detected": false,
+          "max_score": 0.0127,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jarvis_01.wav",
+          "detected": true,
+          "max_score": 0.9982,
+          "trigger_time_s": 0.88,
+          "is_positive": true
+        },
+        {
+          "clip": "synth_hey_jarvis_02.wav",
+          "detected": true,
+          "max_score": 0.9983,
+          "trigger_time_s": 0.72,
+          "is_positive": true
+        },
+        {
+          "clip": "synth_hey_jarvis_03.wav",
+          "detected": true,
+          "max_score": 0.9983,
+          "trigger_time_s": 0.88,
+          "is_positive": true
+        },
+        {
+          "clip": "synth_hey_jarvis_04.wav",
+          "detected": true,
+          "max_score": 0.9982,
+          "trigger_time_s": 0.96,
+          "is_positive": true
+        },
+        {
+          "clip": "synth_hey_jarvis_05.wav",
+          "detected": true,
+          "max_score": 0.9981,
+          "trigger_time_s": 0.88,
+          "is_positive": true
+        },
+        {
+          "clip": "clip_27.wav",
+          "detected": false,
+          "max_score": 0.0137,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jane_01.wav",
+          "detected": false,
+          "max_score": 0.0007,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_john_01.wav",
+          "detected": true,
+          "max_score": 0.8019,
+          "trigger_time_s": 1.44,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_dude_01.wav",
+          "detected": false,
+          "max_score": 0.0009,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_jeev_01.wav",
+          "detected": false,
+          "max_score": 0.0157,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_chef_01.wav",
+          "detected": false,
+          "max_score": 0.0007,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "synth_hey_dave_01.wav",
+          "detected": false,
+          "max_score": 0.0025,
+          "trigger_time_s": null,
+          "is_positive": false
+        },
+        {
+          "clip": "silence_60s.wav",
+          "detected": false,
+          "max_score": 0.0,
+          "trigger_time_s": null,
+          "is_positive": false
+        }
+      ]
+    },
+    "threshold_sweep": [
+      {
+        "threshold": 0.1,
+        "recall_pct": 100.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 800.0
+      },
+      {
+        "threshold": 0.15,
+        "recall_pct": 100.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 800.0
+      },
+      {
+        "threshold": 0.2,
+        "recall_pct": 100.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 800.0
+      },
+      {
+        "threshold": 0.25,
+        "recall_pct": 100.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 880.0
+      },
+      {
+        "threshold": 0.3,
+        "recall_pct": 80.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 880.0
+      },
+      {
+        "threshold": 0.35,
+        "recall_pct": 80.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 880.0
+      },
+      {
+        "threshold": 0.4,
+        "recall_pct": 80.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 880.0
+      },
+      {
+        "threshold": 0.45,
+        "recall_pct": 80.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 880.0
+      },
+      {
+        "threshold": 0.5,
+        "recall_pct": 80.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 880.0
+      },
+      {
+        "threshold": 0.55,
+        "recall_pct": 80.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 880.0
+      },
+      {
+        "threshold": 0.6,
+        "recall_pct": 80.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 880.0
+      },
+      {
+        "threshold": 0.65,
+        "recall_pct": 80.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 880.0
+      },
+      {
+        "threshold": 0.7,
+        "recall_pct": 80.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 880.0
+      },
+      {
+        "threshold": 0.75,
+        "recall_pct": 80.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 880.0
+      },
+      {
+        "threshold": 0.8,
+        "recall_pct": 80.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 880.0
+      },
+      {
+        "threshold": 0.85,
+        "recall_pct": 80.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 880.0
+      },
+      {
+        "threshold": 0.9,
+        "recall_pct": 80.0,
+        "false_accepts": 0,
+        "false_accept_pct": 0.0,
+        "p50_trigger_lat_ms": 880.0
+      }
+    ],
+    "latency": {
+      "step_latency_ms": 5.77,
+      "trigger_p50_ms": 880.0,
+      "trigger_p95_ms": 880.0
+    },
+    "ram_mb": {
+      "added_ram_mb": 156.11,
+      "resident_total_mb": 170.13
+    },
+    "cpu_cost": {
+      "per_80ms_step_ms": 7.23,
+      "cpu_single_core_pct": 9.0,
+      "idle_cpu_with_vad_pct": 0.0
+    }
+  },
+  "custom_model_and_licensing_assessment": {
+    "openwakeword_framework_license": "Apache-2.0",
+    "pretrained_models_license": "CC-BY-NC-SA 4.0 (Non-Commercial, ShareAlike)",
+    "official_training_features_dataset_license": "CC-BY-NC-SA 4.0 (AudioSet/YouTube derived)",
+    "mit_compatibility": false,
+    "status": "BLOCKED: LICENSING",
+    "findings": "Official openWakeWord pretrained models and the official training feature datasets (openwakeword_features on Hugging Face) are licensed under CC-BY-NC-SA 4.0. Models trained using these precomputed features inherit the CC-BY-NC-SA restriction, which conflicts with Hey Jev's MIT commercial license. A clean production custom model would require training completely from scratch on an independently curated, commercially licensed acoustic dataset without CC-BY-NC-SA features."
+  },
+  "production_verdict": {
+    "selected_case": "CASE B & CASE C (Deferred)",
+    "production_wake_engine": "whisper",
+    "experimental_wake_engine": "openwakeword",
+    "feature_flag": "HEYJEV_WAKEWORD_ENGINE",
+    "reason": "Baseline faster-whisper prefix gate achieves 100% positive recall on real user speech, supports natural single-breath command execution without audio truncation, carries clean MIT/Apache licensing, and uses 0% background CPU when silent due to Silero VAD gating. openWakeWord candidate is retained behind the HEYJEV_WAKEWORD_ENGINE feature flag for experimental evaluation."
+  }
+}

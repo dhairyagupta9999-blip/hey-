@@ -827,6 +827,16 @@ def run_voice_assistant(notify=None, controls=None, mode="ptt", mic="", wake_bac
             detected, name, score = wake_detector.feed_audio(audio)
             if detected:
                 print(f"\n  (openwakeword detected: {name} score={score:.2f})")
+                audio_secs = len(audio) / float(SAMPLE_RATE) if len(audio) else 0.0
+                if audio_secs > 1.2:
+                    text, ms = transcribe(audio, COMMAND_PROMPT, drop_noise=True)
+                    print(f"  [stt] {ms}ms ({audio_secs:.2f}s audio)")
+                    m = WAKE.search(text)
+                    rest = text[m.end():].strip(" .,!?") if m else text.strip(" .,!?")
+                    if rest:
+                        armed_until[0] = 0
+                        run_turn(rest, ms, quiet=False)
+                        return
                 with busy:
                     rec.paused = True
                     try:
