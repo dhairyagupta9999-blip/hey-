@@ -1,5 +1,7 @@
 .venv/
 .venv-agents/
+.venv-recon/
+recon_models/
 __pycache__/
 .env
 cache/

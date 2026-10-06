@@ -1,0 +1,512 @@
+{
+  "faster_whisper_baseline": {
+    "engine": "faster-whisper (tiny.en Phase 9a)",
+    "cold_load_ms": 4340,
+    "warmup_ms": 474,
+    "p50_warm_ms": 1053,
+    "p95_warm_ms": 1132,
+    "avg_wer_pct": 21.88888888888889,
+    "kw_acc_pct": 81.25,
+    "cmd_acc_pct": 60.0,
+    "exact_matches": 18,
+    "total_clips": 30,
+    "silence_1s": "",
+    "silence_3s": "",
+    "one_word_outputs": {
+      "Spotify": "Spotify.",
+      "Notepad": "Notepad.",
+      "stop": "Stop.",
+      "yes": "Yes.",
+      "cancel": "Cancel."
+    },
+    "ram_model_mb": 140.0,
+    "peak_ram_mb": 280.0,
+    "streaming": {
+      "first_partial_text": "N/A",
+      "first_partial_lat_ms": "N/A",
+      "final_stream_lat_ms": 1053
+    }
+  },
+  "moonshine": {
+    "engine": "moonshine (tiny-streaming)",
+    "cold_load_ms": 1458,
+    "warmup_ms": 331,
+    "p50_warm_ms": 1002,
+    "p95_warm_ms": 1810,
+    "avg_wer_pct": 28.444444444444443,
+    "kw_acc_pct": 78.125,
+    "cmd_acc_pct": 60.0,
+    "exact_matches": 18,
+    "total_clips": 30,
+    "silence_1s": "",
+    "silence_3s": "",
+    "one_word_outputs": {
+      "Spotify": "Spotify.",
+      "Notepad": "Notepad",
+      "stop": "Stop.",
+      "yes": "Yes.",
+      "cancel": "Cancel"
+    },
+    "ram_model_mb": 76.4,
+    "peak_ram_mb": 138.8,
+    "streaming": {
+      "first_partial_text": "Open!",
+      "first_partial_lat_ms": 338,
+      "final_stream_lat_ms": 1940,
+      "final_stream_text": "Open spotify"
+    },
+    "transcripts": [
+      {
+        "index": 1,
+        "expected": "open Spotify",
+        "got": "Open Spotify",
+        "wer": 0.0,
+        "lat_ms": 1318
+      },
+      {
+        "index": 2,
+        "expected": "set volume to forty percent",
+        "got": "Set volume to 40 percent",
+        "wer": 0.0,
+        "lat_ms": 1248
+      },
+      {
+        "index": 3,
+        "expected": "pause Spotify and open Slack",
+        "got": "Pause, Spotify and Open Slack.",
+        "wer": 0.0,
+        "lat_ms": 1498
+      },
+      {
+        "index": 4,
+        "expected": "who wrote Hamlet",
+        "got": "Pure on.\n[1.41s] Hamlet.",
+        "wer": 1.3333333333333333,
+        "lat_ms": 1159
+      },
+      {
+        "index": 5,
+        "expected": "Hey Jev, dark mode on",
+        "got": "He is a dark mood on.",
+        "wer": 0.8,
+        "lat_ms": 1117
+      },
+      {
+        "index": 6,
+        "expected": "mute the volume",
+        "got": "Mew Tawwalu.",
+        "wer": 1.0,
+        "lat_ms": 1040
+      },
+      {
+        "index": 7,
+        "expected": "set a timer for five minutes",
+        "got": "Set a timer for 5 minutes",
+        "wer": 0.0,
+        "lat_ms": 1626
+      },
+      {
+        "index": 8,
+        "expected": "open youtube",
+        "got": "Open YouTube.",
+        "wer": 0.0,
+        "lat_ms": 984
+      },
+      {
+        "index": 9,
+        "expected": "lock the screen",
+        "got": "Love the screen",
+        "wer": 0.3333333333333333,
+        "lat_ms": 1003
+      },
+      {
+        "index": 10,
+        "expected": "next track",
+        "got": "Next track.",
+        "wer": 0.0,
+        "lat_ms": 746
+      },
+      {
+        "index": 11,
+        "expected": "open Notepad",
+        "got": "Open Notepad",
+        "wer": 0.0,
+        "lat_ms": 586
+      },
+      {
+        "index": 12,
+        "expected": "open Calculator",
+        "got": "Open calculator",
+        "wer": 0.0,
+        "lat_ms": 580
+      },
+      {
+        "index": 13,
+        "expected": "close Notepad",
+        "got": "Close notepad",
+        "wer": 0.0,
+        "lat_ms": 606
+      },
+      {
+        "index": 14,
+        "expected": "open the Downloads folder",
+        "got": "Open the downloads folder.",
+        "wer": 0.0,
+        "lat_ms": 964
+      },
+      {
+        "index": 15,
+        "expected": "open my resume",
+        "got": "Open my resume.",
+        "wer": 0.0,
+        "lat_ms": 1134
+      },
+      {
+        "index": 16,
+        "expected": "open Bluetooth settings",
+        "got": "Open Bluetooth settings",
+        "wer": 0.0,
+        "lat_ms": 1279
+      },
+      {
+        "index": 17,
+        "expected": "open Task Manager",
+        "got": "Open task manager",
+        "wer": 0.0,
+        "lat_ms": 1729
+      },
+      {
+        "index": 18,
+        "expected": "snap Chrome to the left",
+        "got": "Snap chrome to the left.",
+        "wer": 0.0,
+        "lat_ms": 602
+      },
+      {
+        "index": 19,
+        "expected": "volume kam karo",
+        "got": "Volume Cam Caro",
+        "wer": 0.6666666666666666,
+        "lat_ms": 909
+      },
+      {
+        "index": 20,
+        "expected": "Spotify chalao",
+        "got": "Spotify, hello.",
+        "wer": 0.5,
+        "lat_ms": 1878
+      },
+      {
+        "index": 21,
+        "expected": "gaana change karo",
+        "got": "Gone a change, Caro.",
+        "wer": 1.0,
+        "lat_ms": 2954
+      },
+      {
+        "index": 22,
+        "expected": "screen lock karo",
+        "got": "Screen lock, arrow,",
+        "wer": 0.3333333333333333,
+        "lat_ms": 1062
+      },
+      {
+        "index": 23,
+        "expected": "Notepad kholo",
+        "got": "Notepad colo.",
+        "wer": 0.5,
+        "lat_ms": 572
+      },
+      {
+        "index": 24,
+        "expected": "Chrome band karo",
+        "got": "Chrome bandcaro",
+        "wer": 0.6666666666666666,
+        "lat_ms": 525
+      },
+      {
+        "index": 25,
+        "expected": "aaj ka mausam kaisa hai",
+        "got": "Ajay Kamasam Kaisa Hi",
+        "wer": 0.8,
+        "lat_ms": 1002
+      },
+      {
+        "index": 26,
+        "expected": "timer lagao paanch minute ka",
+        "got": "Timer LJO Punch Minute Caught",
+        "wer": 0.6,
+        "lat_ms": 1137
+      },
+      {
+        "index": 27,
+        "expected": "Hey Jeff",
+        "got": "Hey, Jeff.",
+        "wer": 0.0,
+        "lat_ms": 511
+      },
+      {
+        "index": 28,
+        "expected": "hit F",
+        "got": "Hit F.",
+        "wer": 0.0,
+        "lat_ms": 423
+      },
+      {
+        "index": 29,
+        "expected": "log the screen",
+        "got": "Log the screen",
+        "wer": 0.0,
+        "lat_ms": 528
+      },
+      {
+        "index": 30,
+        "expected": "Emily",
+        "got": "Emily.",
+        "wer": 0.0,
+        "lat_ms": 451
+      }
+    ]
+  },
+  "sherpa_onnx": {
+    "engine": "sherpa-onnx (zipformer-20M)",
+    "cold_load_ms": 3519,
+    "warmup_ms": 135,
+    "p50_warm_ms": 302,
+    "p95_warm_ms": 612,
+    "avg_wer_pct": 92.16666666666667,
+    "kw_acc_pct": 12.5,
+    "cmd_acc_pct": 0.0,
+    "exact_matches": 0,
+    "total_clips": 30,
+    "silence_1s": "",
+    "silence_3s": "",
+    "one_word_outputs": {
+      "Spotify": "",
+      "Notepad": "T",
+      "stop": "",
+      "yes": "",
+      "cancel": "UL"
+    },
+    "ram_model_mb": 76.3,
+    "peak_ram_mb": 131.8,
+    "streaming": {
+      "first_partial_text": "'S FOR",
+      "first_partial_lat_ms": 446,
+      "final_stream_lat_ms": 670,
+      "final_stream_text": "'S FORTY FIVE"
+    },
+    "transcripts": [
+      {
+        "index": 1,
+        "expected": "open Spotify",
+        "got": "'S FORTY FIVE",
+        "wer": 1.5,
+        "lat_ms": 534
+      },
+      {
+        "index": 2,
+        "expected": "set volume to forty percent",
+        "got": "UM TWO FORTY PERSUIT",
+        "wer": 0.8,
+        "lat_ms": 564
+      },
+      {
+        "index": 3,
+        "expected": "pause Spotify and open Slack",
+        "got": "'S SPORTIFIED AND OPEN SLACK",
+        "wer": 0.4,
+        "lat_ms": 508
+      },
+      {
+        "index": 4,
+        "expected": "who wrote Hamlet",
+        "got": "T EMILIT",
+        "wer": 1.0,
+        "lat_ms": 635
+      },
+      {
+        "index": 5,
+        "expected": "Hey Jev, dark mode on",
+        "got": "UD ON",
+        "wer": 0.8,
+        "lat_ms": 762
+      },
+      {
+        "index": 6,
+        "expected": "mute the volume",
+        "got": "UDA VOLUME",
+        "wer": 0.6666666666666666,
+        "lat_ms": 585
+      },
+      {
+        "index": 7,
+        "expected": "set a timer for five minutes",
+        "got": "",
+        "wer": 1.0,
+        "lat_ms": 550
+      },
+      {
+        "index": 8,
+        "expected": "open youtube",
+        "got": "UP",
+        "wer": 1.0,
+        "lat_ms": 556
+      },
+      {
+        "index": 9,
+        "expected": "lock the screen",
+        "got": "UST GREEN",
+        "wer": 1.0,
+        "lat_ms": 527
+      },
+      {
+        "index": 10,
+        "expected": "next track",
+        "got": "",
+        "wer": 1.0,
+        "lat_ms": 548
+      },
+      {
+        "index": 11,
+        "expected": "open Notepad",
+        "got": "'D NOTE PAD",
+        "wer": 1.5,
+        "lat_ms": 220
+      },
+      {
+        "index": 12,
+        "expected": "open Calculator",
+        "got": "ATOR",
+        "wer": 1.0,
+        "lat_ms": 233
+      },
+      {
+        "index": 13,
+        "expected": "close Notepad",
+        "got": "'S NOTE PAD",
+        "wer": 1.5,
+        "lat_ms": 234
+      },
+      {
+        "index": 14,
+        "expected": "open the Downloads folder",
+        "got": "'D THE DOWNLOADS FOLDER",
+        "wer": 0.25,
+        "lat_ms": 317
+      },
+      {
+        "index": 15,
+        "expected": "open my resume",
+        "got": "'D MY RESUMIE",
+        "wer": 0.6666666666666666,
+        "lat_ms": 301
+      },
+      {
+        "index": 16,
+        "expected": "open Bluetooth settings",
+        "got": "'EW TOOTH SETTINGS",
+        "wer": 0.6666666666666666,
+        "lat_ms": 297
+      },
+      {
+        "index": 17,
+        "expected": "open Task Manager",
+        "got": "ER",
+        "wer": 1.0,
+        "lat_ms": 303
+      },
+      {
+        "index": 18,
+        "expected": "snap Chrome to the left",
+        "got": "TO THE LEFT",
+        "wer": 0.4,
+        "lat_ms": 316
+      },
+      {
+        "index": 19,
+        "expected": "volume kam karo",
+        "got": "UE CAMPARA",
+        "wer": 1.0,
+        "lat_ms": 298
+      },
+      {
+        "index": 20,
+        "expected": "Spotify chalao",
+        "got": "O",
+        "wer": 1.0,
+        "lat_ms": 254
+      },
+      {
+        "index": 21,
+        "expected": "gaana change karo",
+        "got": "",
+        "wer": 1.0,
+        "lat_ms": 256
+      },
+      {
+        "index": 22,
+        "expected": "screen lock karo",
+        "got": "",
+        "wer": 1.0,
+        "lat_ms": 240
+      },
+      {
+        "index": 23,
+        "expected": "Notepad kholo",
+        "got": "D KOLO",
+        "wer": 1.0,
+        "lat_ms": 245
+      },
+      {
+        "index": 24,
+        "expected": "Chrome band karo",
+        "got": "ERO",
+        "wer": 1.0,
+        "lat_ms": 231
+      },
+      {
+        "index": 25,
+        "expected": "aaj ka mausam kaisa hai",
+        "got": "A J KAM O SOME KAISSAHI",
+        "wer": 1.2,
+        "lat_ms": 390
+      },
+      {
+        "index": 26,
+        "expected": "timer lagao paanch minute ka",
+        "got": "ERLAY JAYO PONCH MINUTE CO",
+        "wer": 0.8,
+        "lat_ms": 417
+      },
+      {
+        "index": 27,
+        "expected": "Hey Jeff",
+        "got": "F",
+        "wer": 1.0,
+        "lat_ms": 199
+      },
+      {
+        "index": 28,
+        "expected": "hit F",
+        "got": "F",
+        "wer": 0.5,
+        "lat_ms": 130
+      },
+      {
+        "index": 29,
+        "expected": "log the screen",
+        "got": "",
+        "wer": 1.0,
+        "lat_ms": 234
+      },
+      {
+        "index": 30,
+        "expected": "Emily",
+        "got": "LY",
+        "wer": 1.0,
+        "lat_ms": 135
+      }
+    ]
+  }
+}
