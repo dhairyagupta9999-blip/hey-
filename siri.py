@@ -536,13 +536,17 @@ def handle(text, stt_ms=None, notify=None, quiet=False):
         emit(notify, "Ready", line)
         return
 
-    # 1. Safety Hook: Stop / cancel commands
-    if t_clean in ("stop", "cancel", "halt", "abort"):
+    # 1. Safety Hook: Stop / cancel / wait fast-path interrupt commands
+    from endpointing import is_interrupt_phrase
+    if is_interrupt_phrase(text):
         from safety_engine import get_confirmation_manager, request_global_cancel
         cm = get_confirmation_manager()
-        cancelled, msg = cm.cancel_pending("user said stop")
-        request_global_cancel("user said stop")
-        line = msg if cancelled else "Stopped."
+        cancelled, msg = cm.cancel_pending(f"user said {t_clean}")
+        request_global_cancel(f"user said {t_clean}")
+        if t_clean in ("wait", "wait a second", "hold on"):
+            line = msg if cancelled else "Holding on."
+        else:
+            line = msg if cancelled else "Stopped."
         say(line, notify)
         emit(notify, "Ready", line)
         return

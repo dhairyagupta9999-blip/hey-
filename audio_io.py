@@ -10,6 +10,7 @@ import numpy as np
 import sounddevice as sd
 import soundfile as sf
 from config import SAMPLE_RATE, WAKE_CHIME, DICTATE_CHIME, TIMER_CHIME
+from endpointing import TurnEndpointDetector
 
 MIC_LEVELS = collections.deque(maxlen=40)  # RMS loudness for dictation bubble
 
@@ -109,7 +110,7 @@ def play_chime(kind):
 class Recorder:
     BLOCK = 1600  # 100ms at 16kHz
 
-    def __init__(self, mic=""):
+    def __init__(self, mic="", use_vad=True):
         self.frames = []
         self.on = False
         self.wake = False
@@ -117,6 +118,7 @@ class Recorder:
         self.dictating = False
         self.segments = queue.Queue()
         self.noise = 0.005
+        self.detector = TurnEndpointDetector(use_neural_vad=use_vad)
         self._reset_segment()
         self.mic_lock = threading.Lock()
         self.stream = self._open(mic)
@@ -161,17 +163,19 @@ class Recorder:
         self.speech = []
         self.silent = 0
         self.preroll = collections.deque(maxlen=3)
+        if hasattr(self, "detector") and self.detector:
+            self.detector.reset()
 
     def _cb(self, indata, frames, time_info, status):
         # Guard a: Pause microphone processing while TTS or chimes play, and for 700 ms after.
         if is_audio_playing_or_settling():
-            if self.speech:
+            if self.speech or self.detector.is_speech_active():
                 self._reset_segment()
             return
         if self.on:
             self.frames.append(indata.copy())
         if not (self.wake or self.dictating) or self.paused:
-            if self.speech:
+            if self.speech or self.detector.is_speech_active():
                 self._reset_segment()
             return
 
@@ -180,25 +184,11 @@ class Recorder:
         if self.dictating:
             MIC_LEVELS.append(rms)
 
-        # Dynamic room-noise threshold
-        loud = rms > max(self.noise * 3, 0.01)
-        if not self.speech:
-            if loud:
-                self.speech = list(self.preroll) + [block]
-                self.silent = 0
-            else:
-                self.noise = 0.95 * self.noise + 0.05 * rms  # track background noise
-                self.preroll.append(block)
-            return
-
-        self.speech.append(block)
-        self.silent = 0 if loud else self.silent + 1
-
-        # 0.8s pause ends phrase; max 15s (30s during dictation)
-        max_blocks = 300 if self.dictating else 150
-        if self.silent >= 8 or len(self.speech) >= max_blocks:
-            if len(self.speech) - self.silent >= 4:
-                self.segments.put(np.concatenate(self.speech))
+        self.detector.set_dictating(self.dictating)
+        segment = self.detector.process_audio(block)
+        self.speech = self.detector.speech_chunks if self.detector.is_speech_active() else []
+        if segment is not None and len(segment) > 0:
+            self.segments.put(segment)
             self._reset_segment()
 
     def start(self):
