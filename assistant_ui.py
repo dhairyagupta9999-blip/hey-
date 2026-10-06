@@ -855,9 +855,33 @@ class MainWindow(QMainWindow):
         win_lay.addWidget(self.chk_autostart)
 
         lay.addWidget(win_group)
+
+        # System Diagnostics Group (Booleans & Counters Only)
+        diag_group = QGroupBox("System Diagnostics (Booleans & Counters Only)")
+        diag_lay = QVBoxLayout(diag_group)
+        self.diag_view = QTextEdit()
+        self.diag_view.setReadOnly(True)
+        self.diag_view.setMaximumHeight(160)
+        self.diag_view.setFont(QFont("Consolas", 9))
+        diag_lay.addWidget(self.diag_view)
+
+        btn_refresh_diag = QPushButton("Refresh Diagnostics")
+        btn_refresh_diag.clicked.connect(self._refresh_diagnostics)
+        diag_lay.addWidget(btn_refresh_diag)
+        lay.addWidget(diag_group)
+
+        self._refresh_diagnostics()
+
         lay.addStretch()
         scroll.setWidget(w)
         return scroll
+
+    def _refresh_diagnostics(self):
+        try:
+            import diagnostics
+            self.diag_view.setPlainText(diagnostics.format_diagnostics_text())
+        except Exception as e:
+            self.diag_view.setPlainText(f"Error loading diagnostics: {e}")
 
     def _on_backend_changed(self, idx: int):
         val = self.backend_combo.itemData(idx)

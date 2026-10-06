@@ -16,12 +16,37 @@ import os
 import sys
 import time
 import json
+import queue
 import subprocess
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 import safety_engine
 from safety_engine import SAFE, MEDIUM, HIGH, BLOCKED, log_action, sanitize_data_content, is_cancel_requested
+
+
+class McpProcessReader:
+    """Non-blocking background reader thread for MCP subprocess stdout."""
+
+    def __init__(self, stdout):
+        self.stdout = stdout
+        self.queue = queue.Queue(maxsize=1000)
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(target=self._worker, daemon=True)
+        self.thread.start()
+
+    def _worker(self):
+        try:
+            for line in iter(self.stdout.readline, ""):
+                if self.stop_event.is_set():
+                    break
+                if line:
+                    self.queue.put(line)
+        except Exception:
+            pass
+
+    def stop(self):
+        self.stop_event.set()
 
 # --------------------------------------------------------------------------- Configuration & Tool Lists
 
@@ -54,7 +79,7 @@ ALLOWED_TOOLS: Dict[str, Dict[str, Any]] = {
         "description": "Capture compact element hierarchy for window orientation."
     },
     "screenshot_control": {
-        "risk": SAFE,
+        "risk": MEDIUM,
         "category": "ui_read",
         "description": "Capture screenshot of desktop or window for visual state."
     },
@@ -142,6 +167,7 @@ class WindowsMcpClient:
         self._cached_tools: List[Dict[str, Any]] = []
         self._cached_tool_names: set[str] = set()
         self._id_counter = 1
+        self._reader: Optional[McpProcessReader] = None
         self._lock = threading.RLock()
 
     def is_available(self) -> bool:
@@ -178,6 +204,7 @@ class WindowsMcpClient:
                     encoding="utf-8",
                     bufsize=0
                 )
+                self._reader = McpProcessReader(self.proc.stdout)
             except Exception:
                 self._available = False
                 self._error_message = CLEAN_ERROR_MESSAGE
@@ -250,6 +277,12 @@ class WindowsMcpClient:
         with self._lock:
             self._available = False
             self._initialized = False
+            if self._reader is not None:
+                try:
+                    self._reader.stop()
+                except Exception:
+                    pass
+                self._reader = None
             if self.proc is not None:
                 try:
                     self.proc.terminate()
@@ -277,8 +310,24 @@ class WindowsMcpClient:
         if not self.proc or not self.proc.stdout:
             return None
 
-        # Read line from stdout with cancellation checking
         t_start = time.perf_counter()
+        # If reader worker thread is active, read from queue without blocking
+        if self._reader is not None:
+            while time.perf_counter() - t_start < timeout_s:
+                if is_cancel_requested():
+                    return None
+                try:
+                    line = self._reader.queue.get(timeout=0.05)
+                    if line:
+                        try:
+                            return json.loads(line)
+                        except Exception:
+                            return None
+                except queue.Empty:
+                    pass
+            return None
+
+        # Fallback for mocked proc objects without thread
         while time.perf_counter() - t_start < timeout_s:
             if is_cancel_requested():
                 return None
@@ -365,6 +414,30 @@ class WindowsMcpClient:
         if not is_allowed or risk_level == BLOCKED:
             safety_engine.log_action(3, name, arguments, BLOCKED, "blocked by safety policy")
             return f"Action '{name}' blocked by safety policy."
+
+        # Provider privacy check (free/training providers must never receive screenshots or window contents)
+        try:
+            from assistant_ui import get_settings
+            configured_prov = get_settings().get("tier3_provider", "openrouter")
+        except Exception:
+            configured_prov = "openrouter"
+        prov_safe, prov_reason = safety_engine.check_data_disclosure_safety(name, configured_prov)
+        if not prov_safe:
+            safety_engine.log_action(3, name, arguments, BLOCKED, f"blocked: {prov_reason}")
+            return f"Blocked: {prov_reason}"
+
+        # Spoken disclosure and confirmation for screenshot and ui_read on other windows
+        is_other_window_read = (name == "ui_read" and bool(arguments.get("window") or arguments.get("windowName") or arguments.get("target") or arguments.get("other_window")))
+        if (name == "screenshot_control" or is_other_window_read) and not bypass_confirmation:
+            desc = safety_engine.format_action_preview_description(name, arguments)
+            cm = safety_engine.get_confirmation_manager()
+            cm.request_high_risk_confirmation(
+                action=name,
+                message=desc,
+                execute_fn=lambda: self.call_tool(name, arguments, bypass_confirmation=True),
+                timeout_s=8.0
+            )
+            return desc
 
         # 6. Foreground Window Check before every MEDIUM or HIGH action
         is_input_or_mutation = name in ("ui_click", "ui_type", "ui_select", "keyboard_control", "mouse_control") or (name == "clipboard" and arguments.get("action") in ("set", "clear"))

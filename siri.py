@@ -525,6 +525,17 @@ def handle(text, stt_ms=None, notify=None, quiet=False):
 
     t_clean = text.lower().strip()
 
+    # 0. Diagnostics Hook
+    if t_clean in ("diag", "diagnostics", "system status", "health check"):
+        import diagnostics
+        diag_text = diagnostics.format_diagnostics_text()
+        print(f"\n{diag_text}\n")
+        d = diagnostics.get_diagnostics_dict()
+        line = f"Diagnostics: listening {d['listening']}, spend {d['today_spent_usd']} dollars."
+        say(line, notify)
+        emit(notify, "Ready", line)
+        return
+
     # 1. Safety Hook: Stop / cancel commands
     if t_clean in ("stop", "cancel", "halt", "abort"):
         from safety_engine import get_confirmation_manager, request_global_cancel
@@ -933,7 +944,11 @@ def main():
     ap.add_argument("--ui", action="store_true", help="launch graphical interface")
     ap.add_argument("--wake-backend", choices=["whisper", "openwakeword"], default="whisper", help="wake engine (whisper or openwakeword)")
     ap.add_argument("--wake-model", help="path to custom openWakeWord model (.onnx / .tflite)")
+    ap.add_argument("--mute", action="store_true", help="mute speech audio output (sets HEYJEV_MUTE=1)")
     args = ap.parse_args()
+
+    if args.mute:
+        os.environ["HEYJEV_MUTE"] = "1"
 
     if args.ui:
         from assistant_ui import run_app

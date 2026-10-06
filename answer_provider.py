@@ -181,6 +181,27 @@ def query_openrouter_chat(
     return reply, latency_ms, cost
 
 
+def _format_error_reason(exc: Optional[Exception] = None, key_missing: bool = False, provider: str = "") -> str:
+    if key_missing:
+        return f"{provider or 'service'} API key is missing"
+    if not exc:
+        return "the service was unavailable"
+    if isinstance(exc, requests.Timeout):
+        return "the service timed out"
+    if isinstance(exc, requests.HTTPError):
+        code = getattr(getattr(exc, "response", None), "status_code", None)
+        if code == 401:
+            return "authentication failed"
+        if code == 429:
+            return "rate limit was reached"
+        return f"server returned error {code}" if code else "server returned an error"
+    if isinstance(exc, requests.ConnectionError):
+        return "network connection failed"
+    if isinstance(exc, ValueError) and "key" in str(exc).lower():
+        return "API key is missing"
+    return "the service reported an error"
+
+
 def ask_answer(
     transcript: str,
     provider: Optional[str] = None
@@ -191,10 +212,11 @@ def ask_answer(
         (reply_text, latency_ms, cost_dollars, provider_used, model_used)
 
     Fallback chain:
-        Zen big-pickle -> another free model from /zen/v1/models -> OpenRouter Haiku -> "I can't answer that right now."
+        Zen big-pickle -> another free model from /zen/v1/models -> OpenRouter Haiku -> spoken reason
     """
     prov = provider or get_configured_provider()
     t_start = time.time()
+    last_failure_reason = ""
 
     if prov == "opencode_zen":
         zen_key = get_opencode_zen_key()
@@ -204,7 +226,7 @@ def ask_answer(
                 reply, lat = query_zen_chat(transcript, model=PRIMARY_ZEN_MODEL, api_key=zen_key, timeout=TIMEOUT_SECONDS)
                 return reply, lat, 0.0, "opencode_zen", PRIMARY_ZEN_MODEL
             except Exception as e:
-                # Never log API key
+                last_failure_reason = _format_error_reason(e)
                 print(f"  [zen primary {PRIMARY_ZEN_MODEL} failed]: {type(e).__name__}")
 
             # 2. Fallback: Another free model from /zen/v1/models
@@ -216,8 +238,11 @@ def ask_answer(
                     reply, lat = query_zen_chat(transcript, model=alt_model, api_key=zen_key, timeout=TIMEOUT_SECONDS)
                     return reply, lat, 0.0, "opencode_zen", alt_model
                 except Exception as e:
+                    last_failure_reason = _format_error_reason(e)
                     print(f"  [zen fallback {alt_model} failed]: {type(e).__name__}")
                     break  # Try next tier in fallback chain
+        else:
+            last_failure_reason = _format_error_reason(key_missing=True, provider="OpenCode Zen")
 
         # 3. Fallback: OpenRouter Haiku (if its key exists)
         or_key = get_openrouter_key()
@@ -226,7 +251,10 @@ def ask_answer(
                 reply, lat, cost = query_openrouter_chat(transcript, api_key=or_key, timeout=TIMEOUT_SECONDS)
                 return reply, lat, cost, "openrouter", DEFAULT_OPENROUTER_MODEL
             except Exception as e:
+                last_failure_reason = _format_error_reason(e)
                 print(f"  [openrouter fallback failed]: {type(e).__name__}")
+        elif not last_failure_reason:
+            last_failure_reason = _format_error_reason(key_missing=True, provider="OpenRouter")
 
     else:
         # Default: OpenRouter
@@ -236,7 +264,10 @@ def ask_answer(
                 reply, lat, cost = query_openrouter_chat(transcript, api_key=or_key, timeout=TIMEOUT_SECONDS)
                 return reply, lat, cost, "openrouter", DEFAULT_OPENROUTER_MODEL
             except Exception as e:
+                last_failure_reason = _format_error_reason(e)
                 print(f"  [openrouter primary failed]: {type(e).__name__}")
+        else:
+            last_failure_reason = _format_error_reason(key_missing=True, provider="OpenRouter")
 
         # If OpenRouter failed, check if Zen is available as fallback
         zen_key = get_opencode_zen_key()
@@ -244,9 +275,11 @@ def ask_answer(
             try:
                 reply, lat = query_zen_chat(transcript, model=PRIMARY_ZEN_MODEL, api_key=zen_key, timeout=TIMEOUT_SECONDS)
                 return reply, lat, 0.0, "opencode_zen", PRIMARY_ZEN_MODEL
-            except Exception:
-                pass
+            except Exception as e:
+                last_failure_reason = _format_error_reason(e)
 
-    # 4. Spoken: "I can't answer that right now."
+    # 4. Spoken failure with specific reason
+    reason = last_failure_reason or "the service was unavailable"
+    spoken_fallback = f"I can't answer that right now: {reason}."
     total_ms = int((time.time() - t_start) * 1000)
-    return "I can't answer that right now.", total_ms, 0.0, "fallback", "none"
+    return spoken_fallback, total_ms, 0.0, "fallback", "none"

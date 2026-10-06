@@ -152,7 +152,8 @@ class TestOpenCodeZenAnswerProvider(unittest.TestCase):
 
         reply, lat, cost, prov, model = answer_provider.ask_answer("Complex unanswerable question", provider="opencode_zen")
 
-        self.assertEqual(reply, "I can't answer that right now.")
+        self.assertIn("I can't answer that right now", reply)
+        self.assertIn("timed out", reply)
         self.assertEqual(prov, "fallback")
         self.assertEqual(cost, 0.0)
 

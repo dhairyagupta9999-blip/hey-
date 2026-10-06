@@ -91,8 +91,21 @@ def fetch_tts(text: str) -> tuple[str, int, bool]:
     return cache_path, latency_ms, False
 
 
+def is_muted() -> bool:
+    """Check if speech audio output is muted via environment variable or CLI flag."""
+    return os.getenv("HEYJEV_MUTE", "0") in ("1", "true", "yes", "True")
+
+
+def set_muted(muted: bool) -> None:
+    """Set global mute state."""
+    os.environ["HEYJEV_MUTE"] = "1" if muted else "0"
+
+
 def speak(text: str) -> int:
     """Synthesize (or fetch from cache) and play audio line. Returns tts latency ms."""
+    if is_muted():
+        # Centralized mute hook: Nothing can route around speak()
+        return 0
     path, ms, cached = fetch_tts(text)
     play_audio(path, blocking=True)
     return ms

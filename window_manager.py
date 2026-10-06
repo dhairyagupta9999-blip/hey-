@@ -62,20 +62,58 @@ def find_window_by_name(query: str) -> Optional[int]:
         pass
 
     if matching_hwnds:
-        return matching_hwnds[0][0]
+        return validate_hwnd(matching_hwnds[0][0])
     return None
+
+def validate_hwnd(hwnd: Any) -> Optional[int]:
+    """Validate that hwnd is a valid positive integer window handle."""
+    if isinstance(hwnd, int) and not isinstance(hwnd, bool):
+        if hwnd > 0:
+            return hwnd
+    elif isinstance(hwnd, str) and hwnd.strip().isdigit():
+        val = int(hwnd.strip())
+        if val > 0:
+            return val
+    return None
+
+
+def focus_hwnd(hwnd: Any) -> bool:
+    """Restore and bring window handle to front."""
+    val = validate_hwnd(hwnd)
+    if not val:
+        return False
+    try:
+        win32gui.ShowWindow(val, win32con.SW_RESTORE)
+        win32gui.SetForegroundWindow(val)
+        return True
+    except Exception:
+        return False
+
+def snap_hwnd(hwnd: Any, side: str = "left") -> bool:
+    """Snap window handle to left or right half."""
+    val = validate_hwnd(hwnd)
+    if not val:
+        return False
+    try:
+        left, top, work_w, work_h = get_work_area()
+        half_w = work_w // 2
+        win32gui.ShowWindow(val, win32con.SW_RESTORE)
+        if side.lower() == "left":
+            x, y, w, h = left, top, half_w, work_h
+        else:
+            x, y, w, h = left + half_w, top, half_w, work_h
+        user32.MoveWindow(val, x, y, w, h, True)
+        win32gui.SetForegroundWindow(val)
+        return True
+    except Exception:
+        return False
 
 def focus_window(name: str) -> bool:
     """Restore and bring window to front."""
     hwnd = find_window_by_name(name)
     if not hwnd:
         return False
-    try:
-        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-        win32gui.SetForegroundWindow(hwnd)
-        return True
-    except Exception:
-        return False
+    return focus_hwnd(hwnd)
 
 def minimize_window(name: str) -> bool:
     """Minimize window."""

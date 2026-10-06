@@ -68,12 +68,12 @@ ACTION_RISK_MAP = {
     "ui_read": SAFE,
     "ui_read_table": SAFE,
     "ui_snapshot": SAFE,
-    "screenshot_control": SAFE,
     "ui_wait": SAFE,
     "window_management": SAFE,
     "app": SAFE,
 
     # MEDIUM (2-second grace period)
+    "screenshot_control": MEDIUM,
     "close_app": MEDIUM,
     "app_quit": MEDIUM,
     "type_text": MEDIUM,
@@ -353,7 +353,22 @@ def format_action_preview_description(action: str, args: Dict[str, Any]) -> str:
         return f"I am about to perform mouse {m_act}. Should I proceed?"
     elif act == "clipboard" and args.get("action") in ("set", "clear"):
         return f"I am about to update the clipboard. Should I proceed?"
+    elif act in ("screenshot_control", "ui_read", "ui_read_table", "ui_snapshot", "read_foreground_text"):
+        return f"I am reading the screen or window contents to show the AI model. Should I proceed?"
     return f"I am about to execute '{action}'. Should I proceed?"
+
+
+def check_data_disclosure_safety(action: str, provider: str = "") -> Tuple[bool, str]:
+    """Check if action is allowed for the specified LLM provider.
+    
+    Free/training providers (like opencode_zen) must NEVER receive screenshots or window text.
+    """
+    prov_clean = (provider or "").lower().strip()
+    act = (action or "").lower().strip()
+    if prov_clean in ("opencode_zen", "zen", "free_training"):
+        if act in ("screenshot_control", "ui_read", "ui_read_table", "ui_snapshot", "read_foreground_text"):
+            return False, f"Action '{action}' transmits screen or window content, which is forbidden with free/training provider '{provider}'."
+    return True, ""
 
 
 def evaluate_risk(action: str, args: Optional[Dict[str, Any]] = None) -> Tuple[str, bool]:
@@ -365,7 +380,8 @@ def evaluate_risk(action: str, args: Optional[Dict[str, Any]] = None) -> Tuple[s
     - Blocked shortcuts return ("BLOCKED", False).
     - mouse_control is HIGH unless action == "scroll".
     - keyboard_control is HIGH unless single allowed key or plain type without modifiers.
-    - Inspection / read actions return (SAFE, True).
+    - screenshot_control and ui_read on other windows return (MEDIUM, True).
+    - Inspection / read actions on current window return (SAFE, True).
     """
     args = args or {}
     act = action.strip().lower()
@@ -376,6 +392,17 @@ def evaluate_risk(action: str, args: Optional[Dict[str, Any]] = None) -> Tuple[s
         safe, _ = check_app_launch_safety(str(target))
         if not safe:
             return BLOCKED, False
+        return SAFE, True
+
+    # Screenshot control risk is MEDIUM
+    if act == "screenshot_control":
+        return MEDIUM, True
+
+    # ui_read on other windows is MEDIUM risk
+    if act == "ui_read":
+        target_win = args.get("window") or args.get("windowName") or args.get("target")
+        if target_win or args.get("other_window"):
+            return MEDIUM, True
         return SAFE, True
 
     # Check clipboard action parameter

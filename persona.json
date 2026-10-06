@@ -1,0 +1,16 @@
+{
+  "name": "Jev",
+  "greeting": "Hey, I'm listening.",
+  "status_phrases": {
+    "ready": "Ready.",
+    "thinking": "Thinking...",
+    "done": "Done.",
+    "cancelled": "Action cancelled."
+  },
+  "confirmation_wording": {
+    "action_prompt": "I am about to execute '{action}'. Should I proceed?",
+    "sensitive_page": "Window '{title}' is a sensitive page. Should I proceed?",
+    "shortcut_warning": "Shortcut '{shortcut}' will perform a key operation. Should I proceed?",
+    "data_disclosure": "I am reading the screen or window contents to show the AI model. Should I proceed?"
+  }
+}

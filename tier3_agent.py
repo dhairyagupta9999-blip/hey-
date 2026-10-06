@@ -83,6 +83,23 @@ def is_spend_cap_exceeded() -> Tuple[bool, float, float]:
     cap = get_daily_spend_cap()
     return (spent >= cap), spent, cap
 
+DEFAULT_PER_TASK_BUDGET = 0.03
+WORST_CASE_CALL_COST = 0.0035
+
+def check_transcript_quality(prompt: str) -> Tuple[bool, str]:
+    """Check if transcript is long (>20 words), low-confidence or garbled."""
+    words = prompt.strip().split()
+    if len(words) > 20:
+        return False, "Transcript exceeds 20 words."
+    if re.search(r"\b(\w{2,})(?:\s+\1){3,}\b", prompt, re.I):
+        return False, "Repetitive phrasing detected in transcript."
+    non_alnum = len(re.findall(r"[^\w\s]", prompt))
+    if len(prompt) > 8 and (non_alnum / len(prompt)) > 0.35:
+        return False, "High proportion of special characters in transcript."
+    if "\ufffd" in prompt or "\\x" in prompt:
+        return False, "Garbled encoding in transcript."
+    return True, ""
+
 
 # --------------------------------------------------------------------------- Tool Implementations (17 Tools)
 def tool_open_app(name: str) -> str:
@@ -166,6 +183,11 @@ def tool_list_windows() -> str:
 
 def tool_focus_window(title: str) -> str:
     import window_manager
+    val_hwnd = window_manager.validate_hwnd(title)
+    if val_hwnd is not None:
+        ok = window_manager.focus_hwnd(val_hwnd)
+        log_action(3, "focus_window", {"hwnd": val_hwnd}, SAFE, "success" if ok else "failed")
+        return f"Focused window {val_hwnd}." if ok else f"Could not focus window {val_hwnd}."
     ok = window_manager.focus_window(title)
     log_action(3, "focus_window", {"title": title}, SAFE, "success" if ok else "failed")
     return f"Focused {title}." if ok else f"Could not find window '{title}'."
@@ -173,6 +195,12 @@ def tool_focus_window(title: str) -> str:
 def tool_window_layout(action: str, target: str = "") -> str:
     import window_manager
     act = action.lower().strip()
+    val_hwnd = window_manager.validate_hwnd(target) if target else None
+    if val_hwnd is not None:
+        if act in ("left", "right"):
+            ok = window_manager.snap_hwnd(val_hwnd, act)
+            log_action(3, f"window_snap_{act}", {"hwnd": val_hwnd}, SAFE, "success" if ok else "failed")
+            return f"Snapped window {val_hwnd} to the {act}." if ok else f"Could not snap window {val_hwnd}."
     if act in ("left", "right"):
         ok = window_manager.snap_window(target, act)
         log_action(3, f"window_snap_{act}", {"target": target}, SAFE, "success" if ok else "failed")
@@ -293,6 +321,12 @@ def tool_click_element(name_or_text: str, bypass_confirmation: bool = False) -> 
     return f"Could not find element or window '{name_or_text}'."
 
 def tool_read_foreground_text() -> str:
+    provider, _, _, _ = get_configured_agent_provider()
+    safe, reason = safety_engine.check_data_disclosure_safety("read_foreground_text", provider)
+    if not safe:
+        log_action(3, "read_foreground_text", {}, BLOCKED, f"blocked: {reason}")
+        return f"Blocked: {reason}"
+
     try:
         hwnd = win32gui.GetForegroundWindow()
         if not hwnd:
@@ -653,13 +687,37 @@ def get_configured_agent_provider() -> Tuple[str, str, str, str]:
 def run_tier3_agent(
     user_prompt: str,
     max_steps: Optional[int] = None,
-    timeout_s: Optional[float] = None
+    timeout_s: Optional[float] = None,
+    bypass_quality_check: bool = False
 ) -> Optional[Dict[str, Any]]:
     """Execute the Tier 3 tool-calling loop with native and MCP tools.
     
     Returns execution summary dict with line to speak, or None if disabled/unresolved.
     """
     t0 = time.perf_counter()
+
+    # 0. Check transcript quality (asks confirmation for long >20 words or garbled)
+    if not bypass_quality_check:
+        valid, reason = check_transcript_quality(user_prompt)
+        if not valid:
+            words = user_prompt.strip().split()
+            short_prompt = " ".join(words[:8]) + ("..." if len(words) > 8 else "")
+            confirm_msg = f"I heard: '{short_prompt}'. Do you want me to proceed with this request?"
+            cm = get_confirmation_manager()
+            cm.request_high_risk_confirmation(
+                "tier3_prompt_confirmation",
+                confirm_msg,
+                lambda: run_tier3_agent(user_prompt, max_steps=max_steps, timeout_s=timeout_s, bypass_quality_check=True),
+                timeout_s=8.0
+            )
+            return {
+                "tier": 3,
+                "status": "needs_confirmation",
+                "line": confirm_msg,
+                "message": confirm_msg,
+                "cost": 0.0,
+                "latency_ms": 0
+            }
 
     # Determine MCP availability and step/timeout limits
     client = mcp_client.get_mcp_client()
@@ -727,6 +785,18 @@ def run_tier3_agent(
         elapsed = time.perf_counter() - t0
         if elapsed >= timeout_s:
             final_line = f"Agent timed out after {int(timeout_s)} seconds."
+            break
+
+        # Check worst-case spend against daily cap and per-task budget before making POST
+        spent = get_daily_spend()
+        cap = get_daily_spend_cap()
+        if (spent + WORST_CASE_CALL_COST) >= cap:
+            final_line = f"Daily spend cap of ${cap:.2f} reached. AI agent paused."
+            logger.trace_line(f"  [tier 3: spend_cap] pre-call check: ${spent:.4f} + ${WORST_CASE_CALL_COST:.4f} >= ${cap:.2f}")
+            break
+        if (total_cost + WORST_CASE_CALL_COST) > DEFAULT_PER_TASK_BUDGET:
+            final_line = f"Per-task budget of ${DEFAULT_PER_TASK_BUDGET:.2f} reached. Stopping."
+            logger.trace_line(f"  [tier 3: task_budget] per-task budget exceeded: ${total_cost:.4f} + ${WORST_CASE_CALL_COST:.4f} > ${DEFAULT_PER_TASK_BUDGET:.2f}")
             break
 
         headers = {

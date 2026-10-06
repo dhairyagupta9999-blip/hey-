@@ -299,14 +299,30 @@ class AppIndex:
         if not candidates:
             return None, 0.0, None
 
-        # Pass 1: Exact alias or name match from apps.json / builtins
+        # Pass 1a: Exact alias or clean_name match from apps.json / builtins (priority >= 80)
         for app in candidates:
             if app["priority"] >= 80:
-                for alias in app["aliases"]:
-                    if q_clean == clean_name(alias):
+                for alias in app.get("aliases", []):
+                    if q_clean == clean_name(alias) or q_norm == alias.lower():
                         return app, 100.0, None
-            if q_clean == app["clean_name"]:
+                if q_clean == app["clean_name"] or q_norm == app["name"].lower():
+                    return app, 100.0, None
+
+        # Pass 1b: Exact match across ALL candidates (Chrome means Chrome)
+        for app in candidates:
+            for alias in app.get("aliases", []):
+                if q_clean == clean_name(alias) or q_norm == alias.lower():
+                    return app, 100.0, None
+            if q_clean == app["clean_name"] or q_norm == app["name"].lower():
                 return app, 100.0, None
+
+        # Pass 1c: Exact token match on multi-word apps (e.g. "chrome" in "google chrome") if unique
+        token_matches = [
+            app for app in candidates
+            if q_clean in app["clean_name"].split() and len(q_clean) >= 4
+        ]
+        if len(token_matches) == 1:
+            return token_matches[0], 100.0, None
 
         # Pass 2: Fuzzy matching with rapidfuzz across all candidates
         scored_candidates: List[Tuple[float, Dict[str, Any]]] = []

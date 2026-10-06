@@ -138,7 +138,7 @@ class TestPhase7McpClient(unittest.TestCase):
         self.assertEqual(evaluate_risk("ui_read")[0], SAFE)
         self.assertEqual(evaluate_risk("ui_read_table")[0], SAFE)
         self.assertEqual(evaluate_risk("ui_snapshot")[0], SAFE)
-        self.assertEqual(evaluate_risk("screenshot_control")[0], SAFE)
+        self.assertEqual(evaluate_risk("screenshot_control")[0], MEDIUM)
         self.assertEqual(evaluate_risk("ui_wait")[0], SAFE)
         self.assertEqual(evaluate_risk("window_management")[0], SAFE)
         self.assertEqual(evaluate_risk("app")[0], SAFE)
