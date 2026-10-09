@@ -1,0 +1,72 @@
+{
+  "phase": "19",
+  "timestamp": 1791355376.30626,
+  "action_logging_ms": {
+    "p50": 26.645,
+    "p95": 32.2668,
+    "mean": 26.9939,
+    "total_records": 100
+  },
+  "checkpoint_save_ms": {
+    "p50": 1.8803,
+    "p95": 5.1254,
+    "mean": 2.3468
+  },
+  "checkpoint_load_ms": {
+    "p50": 13.4252,
+    "p95": 17.7256,
+    "mean": 13.8083
+  },
+  "reconciliation_ms": {
+    "p50": 0.1848,
+    "p95": 0.2188,
+    "mean": 0.1918
+  },
+  "verification_evidence_ms": {
+    "p50": 1.2134,
+    "p95": 2.9618,
+    "mean": 1.4046
+  },
+  "classification_ms": {
+    "p50": 0.1113,
+    "p95": 0.1784,
+    "mean": 0.1135
+  },
+  "recovery_planning_ms": {
+    "p50": 0.1415,
+    "p95": 0.2896,
+    "mean": 0.1824
+  },
+  "circuit_breaker_check_ms": {
+    "p50": 0.0167,
+    "p95": 0.0345,
+    "mean": 0.0192
+  },
+  "transaction_commit_ms": {
+    "p50": 12.2473,
+    "p95": 15.1624,
+    "mean": 12.4795
+  },
+  "transaction_compensate_ms": {
+    "p50": 11.8458,
+    "p95": 14.0987,
+    "mean": 11.8365
+  },
+  "undo_preview_ms": {
+    "p50": 0.0705,
+    "p95": 0.1073,
+    "mean": 0.0781
+  },
+  "undo_execution_ms": {
+    "p50": 0.9606,
+    "p95": 2.2112,
+    "mean": 1.1573
+  },
+  "hash_chain_verification_ms": 0.1036,
+  "timeline_record_count": 140,
+  "memory_profile": {
+    "current_ram_kb": 426.82,
+    "peak_ram_kb": 433.44,
+    "peak_ram_mb": 0.423
+  }
+}

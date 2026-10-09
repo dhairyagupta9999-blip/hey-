@@ -562,6 +562,12 @@ def test_demo_5_background_research_with_memory_and_change_detection(temp_dir, m
     ran = bg_mgr.run_now("bg_research_1")
     assert ran is True
 
+    # Wait for asynchronous background task execution
+    for _ in range(50):
+        if len(notifier.get_history()) >= 1:
+            break
+        time.sleep(0.05)
+
     # Verify memory updated
     stored = memory_store.search("latest benchmark score")
     assert len(stored) >= 1
