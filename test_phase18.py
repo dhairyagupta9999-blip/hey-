@@ -519,14 +519,15 @@ def test_demo_5_background_research_with_memory_and_change_detection(temp_dir, m
     mem_db = os.path.join(temp_dir, "mem.db")
     memory_store = SqliteMemoryStore(db_path=mem_db)
 
-    # Pre-seed memory with baseline knowledge
+    # Pre-seed memory with baseline knowledge (distinct from swarm research goal)
     base_rec = MemoryRecord(
         type=MemoryType.RESEARCH_FACT,
-        content="Previous benchmark score was 85.0",
-        summary="Baseline benchmark score",
+        content="Prior baseline throughput was 42 ops/sec",
+        summary="Baseline throughput metric",
         epistemic_status=EpistemicStatus.FACT,
     )
     memory_store.add(base_rec)
+    assert memory_store.count() == 1
 
     # Setup Notification Manager
     notifier = NotificationManager()
@@ -571,14 +572,21 @@ def test_demo_5_background_research_with_memory_and_change_detection(temp_dir, m
             break
         time.sleep(0.05)
 
-    # Verify memory updated with the new research fact
-    stored = memory_store.search("latest benchmark score")
-    assert len(stored) >= 1
+    # Verify memory updated with a brand-new, identifiable record created by the swarm
+    assert memory_store.count() == 2
+    records_after = memory_store.list()
+    new_records = [r for r in records_after if r.memory_id != base_rec.memory_id]
+    assert len(new_records) == 1
+    new_rec = new_records[0]
+    assert new_rec.type == MemoryType.MISSION_SUMMARY
+    assert new_rec.source == MemorySource.AGENT
+    assert "Research latest benchmark score update" in new_rec.summary
 
-    # Verify notification dispatched and reflects completion
+    # Verify notification dispatched reflects completion and NOT failure
     history = notifier.get_history()
     assert len(history) >= 1
-    assert any("COMPLETED" in n.message or "finished" in n.message for n in history)
+    assert any(n.level == NotificationLevel.NORMAL and ("COMPLETED" in n.message or "finished" in n.message) for n in history)
+    assert not any(n.level == NotificationLevel.HIGH for n in history)
     bg_mgr.stop()
 
 

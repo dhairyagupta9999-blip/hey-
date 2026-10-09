@@ -91,6 +91,7 @@ class WindowsComputerTools:
 
     def __init__(self) -> None:
         self._uia_app: Optional[Any] = None
+        self._operator_v2: Optional[Any] = None
 
     # -------------------------------------------------------------------------
     # Screen & Window Observation
@@ -344,6 +345,36 @@ class WindowsComputerTools:
             if idx < len(matches):
                 return matches[idx]
         return None
+
+    def get_operator_v2(self) -> Any:
+        """Lazy-initialize ComputerOperatorV2 (Phase 20)."""
+        if not self._operator_v2:
+            from computer_operator_v2 import ComputerOperatorV2
+            self._operator_v2 = ComputerOperatorV2()
+        return self._operator_v2
+
+    def execute_semantic_action(
+        self,
+        task_id: str,
+        window_query: Union[str, int],
+        locator: Dict[str, Any],
+        action: str = "click",
+        value: Optional[str] = None,
+        allow_physical_fallback: bool = True,
+    ) -> Dict[str, Any]:
+        """Execute consequential UI action with ComputerOperatorV2 (Phase 20)."""
+        from uia_model import UiaElementLocator
+        loc = UiaElementLocator.from_dict(locator)
+        res = self.get_operator_v2().execute_control_action(
+            task_id=task_id,
+            window_query=window_query,
+            locator=loc,
+            action=action,
+            value=value,
+            allow_physical_fallback=allow_physical_fallback,
+        )
+        return res.to_dict()
+
 
     # -------------------------------------------------------------------------
     # Application Control
