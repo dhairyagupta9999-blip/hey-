@@ -531,6 +531,9 @@ def test_demo_5_background_research_with_memory_and_change_detection(temp_dir, m
     # Setup Notification Manager
     notifier = NotificationManager()
 
+    # Ensure mock gateway supports researcher role requested by SwarmPlanner
+    mock_gateway.register_transport("openai_compatible", MockProviderFast("openai_compatible"))
+
     # Setup Swarm Coordinator
     coord = SwarmCoordinator(
         gateway=mock_gateway,
@@ -568,12 +571,14 @@ def test_demo_5_background_research_with_memory_and_change_detection(temp_dir, m
             break
         time.sleep(0.05)
 
-    # Verify memory updated
+    # Verify memory updated with the new research fact
     stored = memory_store.search("latest benchmark score")
     assert len(stored) >= 1
 
-    # Verify notification dispatched
-    assert len(notifier.get_history()) >= 1
+    # Verify notification dispatched and reflects completion
+    history = notifier.get_history()
+    assert len(history) >= 1
+    assert any("COMPLETED" in n.message or "finished" in n.message for n in history)
     bg_mgr.stop()
 
 

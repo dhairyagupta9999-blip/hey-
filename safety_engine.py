@@ -776,3 +776,19 @@ def delete_file_to_recycle_bin(path: str) -> Dict[str, Any]:
         }
     except Exception as exc:
         return {"success": False, "error": str(exc)}
+
+
+# --------------------------------------------------------------------------- Python Syntax Validation
+def validate_python_syntax(code: str) -> Tuple[bool, Optional[str]]:
+    """Validate Python code syntax before execution using ast.parse."""
+    if not code or not code.strip():
+        return False, "Empty code"
+    try:
+        import ast
+        ast.parse(code)
+        return True, None
+    except SyntaxError as e:
+        return False, f"SyntaxError at line {e.lineno}: {e.msg}"
+    except Exception as e:
+        return False, f"Parse error: {e}"
+

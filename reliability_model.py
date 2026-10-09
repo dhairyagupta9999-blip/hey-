@@ -188,8 +188,13 @@ class ActionRecord:
     record_hash: Optional[str] = None
 
     def _compute_hash_value(self) -> str:
-        """Compute hash without storing — used for non-destructive integrity checks."""
-        payload = f"{self.prev_record_hash}|{self.action_id}|{self.action_type}|{self.target}|{self.status.value}|{self.started_at}|{self.idempotency_key}"
+        """Compute hash without storing — used for non-destructive integrity checks.
+        
+        Seals immutable action attributes (prev_record_hash, action_id, action_type, target,
+        started_at, idempotency_key). Status is mutable during action lifecycle and tracked
+        via state transitions and outcome records.
+        """
+        payload = f"{self.prev_record_hash}|{self.action_id}|{self.action_type}|{self.target}|{self.started_at}|{self.idempotency_key}"
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def compute_hash(self) -> str:
@@ -260,8 +265,13 @@ class Checkpoint:
     checksum: Optional[str] = None
 
     def compute_checksum(self) -> str:
-        """Calculate SHA-256 integrity checksum over checkpoint body."""
-        raw = f"{self.checkpoint_id}|{self.task_id}|{self.mission_id}|{self.sequence}|{self.state}|{json.dumps(sorted(self.completed_steps))}|{json.dumps(sorted(self.pending_steps))}"
+        """Calculate SHA-256 integrity checksum over full checkpoint body."""
+        raw = (
+            f"{self.checkpoint_id}|{self.task_id}|{self.mission_id}|{self.sequence}|{self.state}|"
+            f"{json.dumps(sorted(self.completed_steps))}|{json.dumps(sorted(self.pending_steps))}|"
+            f"{json.dumps(self.artifacts, sort_keys=True)}|{json.dumps(sorted(self.memory_refs))}|"
+            f"{json.dumps(self.environment_snapshot, sort_keys=True)}|{json.dumps(self.resource_state, sort_keys=True)}"
+        )
         self.checksum = f"sha256:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
         return self.checksum
 

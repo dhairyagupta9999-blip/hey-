@@ -48,12 +48,7 @@ class OperationTimeline:
             return [a for a in self._records if a.group_id == group_id]
 
     def verify_integrity(self) -> Tuple[bool, List[str]]:
-        """Verify hash chain linkage across all historical records.
-
-        Checks that each record's prev_record_hash matches the prior record's
-        stored record_hash, ensuring the chain was not tampered with or truncated.
-        Does NOT recompute hashes from mutable fields (status may change after undo).
-        """
+        """Verify hash chain linkage and payload integrity across all historical records."""
         with self._lock:
             errors: List[str] = []
             expected_prev = "GENESIS_RELIABILITY_0"
@@ -63,6 +58,10 @@ class OperationTimeline:
                     errors.append(f"Record {idx} ({rec.action_id}) broken prev_hash: expected {expected_prev}, got {rec.prev_record_hash}")
                 if not rec.record_hash:
                     errors.append(f"Record {idx} ({rec.action_id}) missing record_hash")
+                else:
+                    computed = rec._compute_hash_value()
+                    if rec.record_hash != computed:
+                        errors.append(f"Record {idx} ({rec.action_id}) payload tampered: expected {rec.record_hash}, got {computed}")
                 expected_prev = rec.record_hash
 
             return (len(errors) == 0), errors
@@ -234,11 +233,15 @@ class UndoManager:
             elif action_name == "delete_directory":
                 dir_path = comp.get("path")
                 if dir_path and os.path.exists(dir_path):
-                    # Only remove if directory is empty or safe
+                    force = comp.get("force", False)
+                    # Safety invariant: only remove if directory is empty or force is explicitly granted
                     if not os.listdir(dir_path):
                         os.rmdir(dir_path)
-                    else:
+                    elif force:
                         shutil.rmtree(dir_path)
+                    else:
+                        # Refuse to silently destroy unknown files inside directory
+                        return False
                     return not os.path.exists(dir_path)
                 return True
 

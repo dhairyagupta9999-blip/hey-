@@ -149,8 +149,8 @@ class TestActionRecord:
         h2 = act.compute_hash()
         assert h1 == h2
 
-    def test_action_record_hash_changes_with_status(self):
-        """Hash depends on status field."""
+    def test_action_record_hash_immutable_across_status_transitions(self):
+        """Action intent hash is sealed and remains invariant across status transitions."""
         act = ActionRecord(task_id="t1", action_type="x", target="y",
                            started_at=1000.0, idempotency_key="idem_test")
         act.prev_record_hash = "PREV"
@@ -158,6 +158,19 @@ class TestActionRecord:
         h1 = act.compute_hash()
         act.status = ExecutionStatus.SUCCEEDED
         h2 = act.compute_hash()
+        assert h1 == h2
+
+    def test_action_record_hash_changes_with_target_or_type(self):
+        """Tampering with target or action_type produces a different hash."""
+        act1 = ActionRecord(task_id="t1", action_type="x", target="y",
+                            started_at=1000.0, idempotency_key="idem_test")
+        act1.prev_record_hash = "PREV"
+        h1 = act1.compute_hash()
+
+        act2 = ActionRecord(task_id="t1", action_type="x", target="tampered_target",
+                            started_at=1000.0, idempotency_key="idem_test")
+        act2.prev_record_hash = "PREV"
+        h2 = act2.compute_hash()
         assert h1 != h2
 
     def test_action_record_non_mutating_hash(self):
@@ -1137,6 +1150,69 @@ class TestPropertyInvariants:
         mgr.undo(act.action_id)
         ok, errors = timeline.verify_integrity()
         assert ok is True, f"Integrity errors: {errors}"
+
+    def test_timeline_detects_target_tampering(self):
+        """Timeline must catch payload tampering when an action's target is altered."""
+        timeline = OperationTimeline()
+        act = ActionRecord(task_id="t1", action_type="write", target="C:/safe.txt")
+        timeline.record_action(act)
+        ok, errors = timeline.verify_integrity()
+        assert ok is True
+
+        # Tamper with target
+        act.target = "C:/Windows/System32/secret.key"
+        ok_tampered, errors_tampered = timeline.verify_integrity()
+        assert ok_tampered is False
+        assert any("tampered" in err for err in errors_tampered)
+
+    def test_checkpoint_detects_artifacts_tampering(self):
+        """Checkpoint verify_checksum must fail when artifacts or environment are altered."""
+        chk = Checkpoint(task_id="t1", sequence=0, state="ACTIVE", artifacts=[{"name": "original.txt"}])
+        chk.compute_checksum()
+        assert chk.verify_checksum() is True
+
+        # Tamper with artifacts list
+        chk.artifacts.append({"name": "injected.exe"})
+        assert chk.verify_checksum() is False
+
+    def test_undo_refuses_nonempty_directory_without_force(self, temp_dir):
+        """Safety invariant: undo must refuse to delete a directory containing unexpected user files."""
+        timeline = OperationTimeline()
+        mgr = UndoManager(timeline=timeline)
+        sandbox_dir = os.path.join(temp_dir, "app_dir")
+        os.makedirs(sandbox_dir, exist_ok=True)
+
+        # Place a user file inside the directory
+        user_file = os.path.join(sandbox_dir, "user_precious_data.txt")
+        with open(user_file, "w") as f:
+            f.write("DO NOT DELETE")
+
+        act = ActionRecord(
+            task_id="t_dir", action_type="create_dir", target=sandbox_dir,
+            status=ExecutionStatus.SUCCEEDED,
+            reversibility=ReversibilityType.REVERSIBLE,
+            compensation_action={"action": "delete_directory", "path": sandbox_dir},
+        )
+        timeline.record_action(act)
+
+        # Undo must fail safely and refuse to delete non-empty directory
+        success = mgr.undo(act.action_id)
+        assert success is False
+        assert os.path.exists(sandbox_dir)
+        assert os.path.exists(user_file)
+
+    def test_python_syntax_validation(self):
+        """Python syntax validator must detect invalid syntax and allow valid code."""
+        from safety_engine import validate_python_syntax
+        valid_code = "def add(a, b):\n    return a + b\n"
+        is_valid, err = validate_python_syntax(valid_code)
+        assert is_valid is True
+        assert err is None
+
+        invalid_code = "def broken(:\n    return\n"
+        is_invalid, err = validate_python_syntax(invalid_code)
+        assert is_invalid is False
+        assert "SyntaxError" in err
 
 
 # =====================================================================
