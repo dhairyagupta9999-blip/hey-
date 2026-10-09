@@ -185,13 +185,16 @@ class EventRuleEngine:
         max_event_chain_depth: int = 5,
         action_dispatcher: Optional[Callable[[EventRule, TaskEvent], Any]] = None,
         max_chain_depth: Optional[int] = None,
+        semantic_dedup_window_sec: float = 0.5,
     ) -> None:
         self.event_bus = event_bus or EventBus()
         self.max_event_chain_depth = max_chain_depth if max_chain_depth is not None else max_event_chain_depth
         self.action_dispatcher = action_dispatcher
+        self.semantic_dedup_window_sec = semantic_dedup_window_sec
         self._lock = threading.RLock()
         self._rules: Dict[str, EventRule] = {}
         self._recent_fingerprints: Dict[str, float] = {}
+        self._recent_semantic_keys: Dict[str, float] = {}
         self._subscribed = False
 
     def delete_rule(self, rule_id: str) -> bool:
@@ -251,31 +254,62 @@ class EventRuleEngine:
         body = f"{event.event_type}:{event.task_id}:{json.dumps(event.data, sort_keys=True)}"
         return hashlib.md5(body.encode("utf-8")).hexdigest()[:16]
 
+    def compute_semantic_key(self, event: TaskEvent) -> Optional[str]:
+        """Extract semantic deduplication key for entity-based events."""
+        data = event.data or {}
+        target = (
+            data.get("file_path")
+            or data.get("path")
+            or data.get("file")
+            or data.get("project_id")
+            or data.get("repo_path")
+            or data.get("target_id")
+            or data.get("background_task_id")
+        )
+        if target:
+            return f"{event.event_type}:{target}"
+        return None
+
     def handle_event(self, event: TaskEvent) -> List[Dict[str, Any]]:
-        """Evaluate incoming event against registered rules."""
-        # Check chain depth metadata to prevent cascading infinite loops
+        """Evaluate incoming event against registered rules with dedup and cycle prevention."""
         depth = int(event.data.get("_chain_depth", 0))
         if depth >= self.max_event_chain_depth:
             return []
 
+        causal_rules = list(event.data.get("_causal_rules", []))
         now = time.time()
         fp = self.compute_fingerprint(event)
+        sem_key = self.compute_semantic_key(event)
 
         with self._lock:
-            # Deduplicate burst events within 200ms
+            # Exact fingerprint deduplication within 200ms
             if fp in self._recent_fingerprints and (now - self._recent_fingerprints[fp]) < 0.2:
                 return []
             self._recent_fingerprints[fp] = now
+
+            # Semantic deduplication if enabled and entity target present
+            if sem_key is not None and self.semantic_dedup_window_sec > 0.0:
+                if sem_key in self._recent_semantic_keys and (now - self._recent_semantic_keys[sem_key]) < self.semantic_dedup_window_sec:
+                    return []
+                self._recent_semantic_keys[sem_key] = now
+
             # Prune old fingerprints
             if len(self._recent_fingerprints) > 1000:
                 cutoff = now - 60.0
                 self._recent_fingerprints = {k: v for k, v in self._recent_fingerprints.items() if v >= cutoff}
+            if len(self._recent_semantic_keys) > 1000:
+                cutoff = now - 60.0
+                self._recent_semantic_keys = {k: v for k, v in self._recent_semantic_keys.items() if v >= cutoff}
 
             rules_to_eval = list(self._rules.values())
 
         fired_actions: List[Dict[str, Any]] = []
 
         for rule in rules_to_eval:
+            # Causal cycle prevention: break loops where rule triggers itself in same chain
+            if rule.rule_id in causal_rules:
+                continue
+
             if not rule.can_fire(now):
                 continue
             if not fnmatch.fnmatch(event.event_type, rule.event_pattern):
@@ -292,6 +326,7 @@ class EventRuleEngine:
                 with self._lock:
                     rule.record_fire(now)
 
+                next_causal = causal_rules + [rule.rule_id]
                 action_res = {
                     "rule_id": rule.rule_id,
                     "action_type": rule.action_type.value,
@@ -299,6 +334,7 @@ class EventRuleEngine:
                     "event_type": event.event_type,
                     "task_id": event.task_id,
                     "chain_depth": depth + 1,
+                    "_causal_rules": next_causal,
                 }
                 fired_actions.append(action_res)
 
@@ -317,6 +353,7 @@ class EventRuleEngine:
                         "action_type": rule.action_type.value,
                         "triggered_by": event.event_type,
                         "chain_depth": depth + 1,
+                        "_causal_rules": next_causal,
                     },
                 )
 

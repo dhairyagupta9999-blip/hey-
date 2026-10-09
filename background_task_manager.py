@@ -31,7 +31,9 @@ from background_task_model import (
 from event_bus import EventBus
 from event_rule_engine import EventActionType, EventRule, EventRuleEngine
 from notification_manager import NotificationManager
+from recovery_engine import FailureClassifierV2, RecoveryDecisionEngine
 from recovery_manager import RecoveryManager
+from reliability_model import FailureCategory, RecoveryPlan, RecoveryStrategy
 from resource_governor import ResourceGovernor
 from scheduler_backend import InProcessSchedulerBackend, SchedulerBackend
 from watcher_model import WatcherDefinition, WatcherState, WatcherType
@@ -43,6 +45,7 @@ from watchers import (
     MissionWatcher,
     ProcessWatcher,
     ProjectWatcher,
+    WindowsNativeDirectoryWatcher,
 )
 
 
@@ -70,6 +73,7 @@ class BackgroundTaskManager:
         )
         self.task_executor = task_executor
         self.recovery_manager = RecoveryManager(event_bus=self.event_bus)
+        self.recovery_engine = RecoveryDecisionEngine()
 
         self._lock = threading.RLock()
         self._mem_conn: Optional[sqlite3.Connection] = None
@@ -639,21 +643,75 @@ class BackgroundTaskManager:
                     level=task_def.notification_policy,
                 )
         else:
+            category = FailureClassifierV2.classify(error_msg)
+            recovery_plan = self.recovery_engine.plan_recovery(
+                failure=category,
+                target_id=task_def.background_task_id,
+                attempt_count=task_def.failure_count + 1,
+                context={
+                    "task_name": task_def.name,
+                    "action_type": task_def.action_type,
+                    "error": error_msg,
+                },
+            )
+
             task_def.failure_count += 1
-            if task_def.failure_count >= task_def.max_retries:
+            delay = 0.0
+
+            if recovery_plan.strategy == RecoveryStrategy.RETRY and task_def.failure_count <= task_def.max_retries:
+                task_def.state = BackgroundTaskState.READY
+                for s in recovery_plan.steps:
+                    if s.get("action") == "sleep_backoff":
+                        delay = s.get("delay_seconds", 0.0)
+                task_def.metadata["next_retry_delay"] = delay
+                notif_msg = f"Error: {error_msg}. Retrying in {delay}s (Attempt {task_def.failure_count}/{task_def.max_retries})."
+            elif recovery_plan.strategy == RecoveryStrategy.ESCALATE:
                 task_def.state = BackgroundTaskState.FAILED
+                task_def.metadata["escalation_reason"] = f"Recovery escalated: {category.value}"
+                notif_msg = f"Task Failed: {task_def.name}. Escalated: {error_msg}"
+            elif recovery_plan.strategy == RecoveryStrategy.ABORT:
+                task_def.state = BackgroundTaskState.BLOCKED
+                task_def.metadata["blocked_reason"] = f"Aborted by policy: {category.value}"
+                notif_msg = f"Task Blocked: {task_def.name}. Security/policy violation: {error_msg}"
+            elif recovery_plan.strategy == RecoveryStrategy.RECONCILE:
+                task_def.state = BackgroundTaskState.WAITING
+                task_def.metadata["reconciliation_required"] = True
+                notif_msg = f"Task Paused for Reconciliation: {task_def.name}."
             else:
-                task_def.state = BackgroundTaskState.READY  # Ready for retry
+                if task_def.failure_count > task_def.max_retries:
+                    task_def.state = BackgroundTaskState.FAILED
+                else:
+                    task_def.state = BackgroundTaskState.READY
+                notif_msg = f"Error: {error_msg} (Attempt {task_def.failure_count}/{task_def.max_retries})"
+
+            self.event_bus.emit(
+                event_type="recovery.planned",
+                task_id=task_def.background_task_id,
+                agent_name="BackgroundTaskManager",
+                data={
+                    "failure_category": category.value,
+                    "strategy": recovery_plan.strategy.value,
+                    "risk": recovery_plan.risk,
+                    "steps": recovery_plan.steps,
+                    "requires_approval": recovery_plan.requires_approval,
+                    "retry_delay": delay,
+                },
+            )
 
             self.event_bus.emit(
                 event_type="background_task.failed",
                 task_id=task_def.background_task_id,
                 agent_name="BackgroundTaskManager",
-                data={"error": error_msg, "failure_count": task_def.failure_count},
+                data={
+                    "error": error_msg,
+                    "failure_count": task_def.failure_count,
+                    "failure_category": category.value,
+                    "recovery_strategy": recovery_plan.strategy.value,
+                },
             )
             self.notification_manager.notify(
                 title=f"Task Failed: {task_def.name}",
-                message=f"Error: {error_msg} (Attempt {task_def.failure_count}/{task_def.max_retries})",
+                message=notif_msg,
                 level=NotificationLevel.IMPORTANT,
             )
 
@@ -700,8 +758,15 @@ class BackgroundTaskManager:
 
         # Create concrete watcher instance
         watcher_inst: BaseWatcher
-        if definition.type == WatcherType.DIRECTORY or definition.type == WatcherType.FILE:
+        if definition.type in (WatcherType.DIRECTORY, WatcherType.FILESYSTEM):
+            if definition.metadata.get("native", False) or definition.metadata.get("use_native", False):
+                watcher_inst = WindowsNativeDirectoryWatcher(definition, event_bus=self.event_bus)
+            else:
+                watcher_inst = FilesystemWatcher(definition, event_bus=self.event_bus)
+        elif definition.type == WatcherType.FILE:
             watcher_inst = FilesystemWatcher(definition, event_bus=self.event_bus)
+        elif definition.type == WatcherType.PROJECT:
+            watcher_inst = ProjectWatcher(definition, event_bus=self.event_bus)
         elif definition.type == WatcherType.GIT:
             watcher_inst = GitWatcher(definition, event_bus=self.event_bus)
         elif definition.type == WatcherType.PROCESS:
