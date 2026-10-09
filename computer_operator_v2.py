@@ -168,6 +168,7 @@ class ComputerOperatorV2:
         action: str = "click",
         value: Optional[str] = None,
         allow_physical_fallback: bool = True,
+        require_focus: bool = True,
     ) -> OperatorV2Result:
         """Execute consequential UI action with full Phase 19 reliability loop."""
         action_id = f"act_{uuid.uuid4().hex[:12]}"
@@ -208,15 +209,16 @@ class ComputerOperatorV2:
             )
 
         # 4. Safe Focus Management (Never blindly assume activation succeeded)
-        focus_res = self.focus_mgr.activate_window(win.hwnd)
-        if not focus_res.success:
-            return OperatorV2Result(
-                action_type=SemanticActionType.INVOKE,
-                target=target_desc,
-                action_id=action_id,
-                error=focus_res.error or "FOCUS_DENIED: Could not bring target window to foreground",
-                verified=False,
-            )
+        if require_focus:
+            focus_res = self.focus_mgr.activate_window(win.hwnd)
+            if not focus_res.success:
+                return OperatorV2Result(
+                    action_type=SemanticActionType.INVOKE,
+                    target=target_desc,
+                    action_id=action_id,
+                    error=focus_res.error or "FOCUS_DENIED: Could not bring target window to foreground",
+                    verified=False,
+                )
 
         # 5. UI Automation Element Grounding
         elem = self.uia.find_control(win, locator)

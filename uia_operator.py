@@ -10,7 +10,12 @@ Provides:
 from __future__ import annotations
 
 import abc
+import sys
 import time
+
+if not hasattr(sys, "coinit_flags"):
+    sys.coinit_flags = 2  # STA mode to ensure compatibility with Windows GUI frameworks
+
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from dpi_manager import DpiManager

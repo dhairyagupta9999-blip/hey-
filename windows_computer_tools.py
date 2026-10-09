@@ -361,6 +361,7 @@ class WindowsComputerTools:
         action: str = "click",
         value: Optional[str] = None,
         allow_physical_fallback: bool = True,
+        require_focus: bool = True,
     ) -> Dict[str, Any]:
         """Execute consequential UI action with ComputerOperatorV2 (Phase 20)."""
         from uia_model import UiaElementLocator
@@ -372,6 +373,7 @@ class WindowsComputerTools:
             action=action,
             value=value,
             allow_physical_fallback=allow_physical_fallback,
+            require_focus=require_focus,
         )
         return res.to_dict()
 

@@ -170,6 +170,10 @@ class WindowsComputerAdapter(AgentAdapter):
                 confidence=0.95 if success else 0.50,
             )
 
+        # 7. UI Automation Interaction (Phase 20 ComputerOperatorV2)
+        if "ui_action" in ctx or any(k in goal_lower for k in ("click", "type into", "set value", "enter text", "toggle", "select in")):
+            return self._handle_ui_action(task)
+
         # Default fallback: Observe desktop
         obs = self.tools.observe_screen()
         return AgentResult(
@@ -177,6 +181,38 @@ class WindowsComputerAdapter(AgentAdapter):
             summary=f"Desktop observed: {obs['total_windows']} windows visible.",
             status=AgentResultStatus.SUCCESS,
             confidence=0.90,
+        )
+
+    def _handle_ui_action(self, task: AgentTask) -> AgentResult:
+        """Execute UI interaction using ComputerOperatorV2 (Phase 20)."""
+        ctx = task.context
+        window = ctx.get("window") or ctx.get("window_query") or (self.tools.get_active_window() or {}).get("hwnd")
+        window_query = window.get("hwnd") if isinstance(window, dict) else (window or 0)
+        locator = ctx.get("locator") or {
+            "name": ctx.get("target_name") or ctx.get("name"),
+            "control_type": ctx.get("control_type"),
+            "automation_id": ctx.get("automation_id"),
+        }
+        action = ctx.get("action", "click")
+        value = ctx.get("value") or ctx.get("text")
+
+        res_dict = self.tools.execute_semantic_action(
+            task_id=task.task_id,
+            window_query=window_query,
+            locator=locator,
+            action=action,
+            value=value,
+            allow_physical_fallback=bool(ctx.get("allow_physical_fallback", True)),
+            require_focus=bool(ctx.get("require_focus", True)),
+        )
+
+        status = AgentResultStatus.SUCCESS if res_dict.get("success") else AgentResultStatus.FAILURE
+        return AgentResult(
+            result=res_dict,
+            summary=res_dict.get("verification_summary") or f"UI action '{action}' on '{res_dict.get('target')}'",
+            error=res_dict.get("error"),
+            status=status,
+            confidence=res_dict.get("confidence", 0.9),
         )
 
     def _handle_open_nth_picture(self, task: AgentTask, index: int = 3) -> AgentResult:
