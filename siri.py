@@ -924,6 +924,13 @@ def run_voice_assistant(notify=None, controls=None, mode="ptt", mic="", wake_bac
     set_disable_wake_fn(lambda: set_mode("ptt"))
     set_mode(mode)
 
+    # Initialize runtime background automation fleet
+    try:
+        from runtime_manager import start_runtime
+        start_runtime()
+    except Exception as exc:
+        print(f"  [runtime_manager warning]: {exc}")
+
     print("ready. ctrl+c to quit.")
 
     # Hotkey hook for push to talk
@@ -949,6 +956,11 @@ def run_voice_assistant(notify=None, controls=None, mode="ptt", mic="", wake_bac
             time.sleep(1)
     except KeyboardInterrupt:
         ptt.stop()
+        try:
+            from runtime_manager import stop_runtime
+            stop_runtime()
+        except Exception:
+            pass
         print("\nExiting Hey Jev.")
 
 def main():

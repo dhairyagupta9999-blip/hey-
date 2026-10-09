@@ -60,6 +60,7 @@ class BackgroundTaskManager:
         scheduler: Optional[SchedulerBackend] = None,
         notification_manager: Optional[NotificationManager] = None,
         task_executor: Optional[Callable[[BackgroundTaskDefinition], Dict[str, Any]]] = None,
+        project_registry: Optional[Any] = None,
     ) -> None:
         if db_path is None:
             self.db_path = os.path.join(config.APPDATA_DIR, "background_tasks.db")
@@ -67,6 +68,7 @@ class BackgroundTaskManager:
             self.db_path = db_path
 
         self.event_bus = event_bus or EventBus()
+        self.project_registry = project_registry
         self.governor = governor or ResourceGovernor()
         self.notification_manager = notification_manager or NotificationManager(
             event_bus=self.event_bus, governor=self.governor
@@ -757,26 +759,7 @@ class BackgroundTaskManager:
             )
 
         # Create concrete watcher instance
-        watcher_inst: BaseWatcher
-        if definition.type in (WatcherType.DIRECTORY, WatcherType.FILESYSTEM):
-            if definition.metadata.get("native", False) or definition.metadata.get("use_native", False):
-                watcher_inst = WindowsNativeDirectoryWatcher(definition, event_bus=self.event_bus)
-            else:
-                watcher_inst = FilesystemWatcher(definition, event_bus=self.event_bus)
-        elif definition.type == WatcherType.FILE:
-            watcher_inst = FilesystemWatcher(definition, event_bus=self.event_bus)
-        elif definition.type == WatcherType.PROJECT:
-            watcher_inst = ProjectWatcher(definition, event_bus=self.event_bus)
-        elif definition.type == WatcherType.GIT:
-            watcher_inst = GitWatcher(definition, event_bus=self.event_bus)
-        elif definition.type == WatcherType.PROCESS:
-            watcher_inst = ProcessWatcher(definition, event_bus=self.event_bus)
-        elif definition.type == WatcherType.BROWSER:
-            watcher_inst = BrowserWatcher(definition, event_bus=self.event_bus)
-        elif definition.type == WatcherType.MISSION:
-            watcher_inst = MissionWatcher(definition, event_bus=self.event_bus)
-        else:
-            watcher_inst = BaseWatcher(definition, event_bus=self.event_bus)
+        watcher_inst = self._create_watcher_instance(definition)
 
         with self._lock:
             self._active_watchers[definition.watcher_id] = watcher_inst
@@ -785,6 +768,40 @@ class BackgroundTaskManager:
             watcher_inst.start()
 
         return watcher_inst
+
+    def _create_watcher_instance(self, definition: WatcherDefinition) -> BaseWatcher:
+        """Create concrete watcher instance from definition."""
+        if definition.type in (WatcherType.DIRECTORY, WatcherType.FILESYSTEM):
+            if definition.metadata.get("native", False) or definition.metadata.get("use_native", False):
+                return WindowsNativeDirectoryWatcher(definition, event_bus=self.event_bus)
+            else:
+                return FilesystemWatcher(definition, event_bus=self.event_bus)
+        elif definition.type == WatcherType.FILE:
+            return FilesystemWatcher(definition, event_bus=self.event_bus)
+        elif definition.type == WatcherType.PROJECT:
+            return ProjectWatcher(definition, event_bus=self.event_bus, project_registry=self.project_registry)
+        elif definition.type == WatcherType.GIT:
+            return GitWatcher(definition, event_bus=self.event_bus)
+        elif definition.type == WatcherType.PROCESS:
+            return ProcessWatcher(definition, event_bus=self.event_bus)
+        elif definition.type == WatcherType.BROWSER:
+            return BrowserWatcher(definition, event_bus=self.event_bus)
+        elif definition.type == WatcherType.MISSION:
+            return MissionWatcher(definition, event_bus=self.event_bus)
+        else:
+            return BaseWatcher(definition, event_bus=self.event_bus)
+
+    def load_persisted_watchers(self) -> List[BaseWatcher]:
+        """Load and instantiate all persisted watchers from the database."""
+        restored: List[BaseWatcher] = []
+        with self._lock:
+            definitions = self.list_watchers()
+            for defn in definitions:
+                if defn.watcher_id not in self._active_watchers:
+                    inst = self._create_watcher_instance(defn)
+                    self._active_watchers[defn.watcher_id] = inst
+                    restored.append(inst)
+        return restored
 
     def get_watcher(self, watcher_id: str) -> Optional[BaseWatcher]:
         with self._lock:
@@ -839,16 +856,19 @@ class BackgroundTaskManager:
             for t in reconciled:
                 self.update_task(t)
 
-            # 2. Start scheduler
+            # 2. Re-instantiate persisted watchers
+            self.load_persisted_watchers()
+
+            # 3. Start scheduler
             self.scheduler.start()
             for t in self.list_tasks(BackgroundTaskState.SCHEDULED):
                 if t.enabled and t.schedule:
                     self.scheduler.schedule(t)
 
-            # 3. Start event rule engine
+            # 4. Start event rule engine
             self.rule_engine.start_listening()
 
-            # 4. Start active watchers
+            # 5. Start active watchers
             for w in self._active_watchers.values():
                 if w.definition.enabled:
                     w.start()

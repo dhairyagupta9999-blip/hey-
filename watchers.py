@@ -285,22 +285,23 @@ class FilesystemWatcher(BaseWatcher):
 
     def _check_settled_events(self, now: float, force: bool = False) -> None:
         """Flush events that have settled or reached timeout."""
-        for fpath, info in list(self._pending_settle.items()):
-            is_stable = (now - info["stable_since"]) >= self.settle_window_sec
-            is_timeout = (now - info["first_seen"]) >= self.max_settle_timeout_sec
-            if force or is_stable or is_timeout:
-                self.emit_debounced_event(
-                    info["event_type"],
-                    {
-                        "file": fpath,
-                        "path": fpath,
-                        "file_path": fpath,
-                        "settled": True,
-                        "settle_duration": round(now - info["first_seen"], 3),
-                        "size": info["last_size"],
-                    },
-                )
-                del self._pending_settle[fpath]
+        with self._lock:
+            for fpath, info in list(self._pending_settle.items()):
+                is_stable = (now - info["stable_since"]) >= self.settle_window_sec
+                is_timeout = (now - info["first_seen"]) >= self.max_settle_timeout_sec
+                if force or is_stable or is_timeout:
+                    self.emit_debounced_event(
+                        info["event_type"],
+                        {
+                            "file": fpath,
+                            "path": fpath,
+                            "file_path": fpath,
+                            "settled": True,
+                            "settle_duration": round(now - info["first_seen"], 3),
+                            "size": info["last_size"],
+                        },
+                    )
+                    self._pending_settle.pop(fpath, None)
 
     def _watch_loop(self) -> None:
         """Run directory monitoring with debounced event dispatch."""
@@ -447,34 +448,35 @@ class WindowsNativeDirectoryWatcher(BaseWatcher):
         return any(fnmatch.fnmatch(filename, pat) for pat in self.definition.filters)
 
     def _check_settled_events(self, now: float, force: bool = False) -> None:
-        for fpath, info in list(self._pending_settle.items()):
-            try:
-                st = os.stat(fpath)
-                curr_size = st.st_size
-                curr_mtime = st.st_mtime
-                if curr_size != info["last_size"] or curr_mtime != info["last_mtime"]:
-                    info["last_size"] = curr_size
-                    info["last_mtime"] = curr_mtime
-                    info["stable_since"] = now
-            except OSError:
-                pass
+        with self._lock:
+            for fpath, info in list(self._pending_settle.items()):
+                try:
+                    st = os.stat(fpath)
+                    curr_size = st.st_size
+                    curr_mtime = st.st_mtime
+                    if curr_size != info["last_size"] or curr_mtime != info["last_mtime"]:
+                        info["last_size"] = curr_size
+                        info["last_mtime"] = curr_mtime
+                        info["stable_since"] = now
+                except OSError:
+                    pass
 
-            is_stable = (now - info["stable_since"]) >= self.settle_window_sec
-            is_timeout = (now - info["first_seen"]) >= self.max_settle_timeout_sec
-            if force or is_stable or is_timeout:
-                self.emit_debounced_event(
-                    info["event_type"],
-                    {
-                        "file": fpath,
-                        "path": fpath,
-                        "file_path": fpath,
-                        "native": True,
-                        "settled": True,
-                        "settle_duration": round(now - info["first_seen"], 3),
-                        "size": info["last_size"],
-                    },
-                )
-                del self._pending_settle[fpath]
+                is_stable = (now - info["stable_since"]) >= self.settle_window_sec
+                is_timeout = (now - info["first_seen"]) >= self.max_settle_timeout_sec
+                if force or is_stable or is_timeout:
+                    self.emit_debounced_event(
+                        info["event_type"],
+                        {
+                            "file": fpath,
+                            "path": fpath,
+                            "file_path": fpath,
+                            "native": True,
+                            "settled": True,
+                            "settle_duration": round(now - info["first_seen"], 3),
+                            "size": info["last_size"],
+                        },
+                    )
+                    self._pending_settle.pop(fpath, None)
 
     def _watch_loop(self) -> None:
         if self.using_fallback:
@@ -502,10 +504,12 @@ class WindowsNativeDirectoryWatcher(BaseWatcher):
                 )
 
                 wait_res = win32event.WaitForSingleObject(self._h_event, 200)
+                if not self._running:
+                    break
                 now = time.time()
 
                 if wait_res == win32event.WAIT_OBJECT_0:
-                    nbytes = win32file.GetOverlappedResult(self._dir_handle, overlapped, True)
+                    nbytes = win32file.GetOverlappedResult(self._dir_handle, overlapped, False)
                     notifications = win32file.FILE_NOTIFY_INFORMATION(buffer, nbytes)
                     for action, rel_path in notifications:
                         if not self._matches_filters(rel_path):
@@ -567,6 +571,21 @@ class WindowsNativeDirectoryWatcher(BaseWatcher):
             if self._dir_handle and self._dir_handle != getattr(win32file, "INVALID_HANDLE_VALUE", None):
                 try:
                     win32file.CancelIo(self._dir_handle)
+                except Exception:
+                    pass
+            if self._h_event:
+                try:
+                    win32event.SetEvent(self._h_event)
+                except Exception:
+                    pass
+
+        # Join the loop thread before closing handles
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+
+        with self._lock:
+            if self._dir_handle and self._dir_handle != getattr(win32file, "INVALID_HANDLE_VALUE", None):
+                try:
                     win32file.CloseHandle(self._dir_handle)
                 except Exception:
                     pass
@@ -577,6 +596,7 @@ class WindowsNativeDirectoryWatcher(BaseWatcher):
                 except Exception:
                     pass
                 self._h_event = None
+
         if self._polling_fallback_watcher:
             self._polling_fallback_watcher.stop()
         super().stop()

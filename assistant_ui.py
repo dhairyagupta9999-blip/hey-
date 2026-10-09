@@ -1155,6 +1155,11 @@ class MainWindow(QMainWindow):
         return False, 0
 
     def _quit_application(self):
+        try:
+            from runtime_manager import stop_runtime
+            stop_runtime()
+        except Exception:
+            pass
         self.bubble.close()
         QApplication.quit()
 

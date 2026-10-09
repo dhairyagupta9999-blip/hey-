@@ -19,15 +19,69 @@ import uuid
 import threading
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+import tempfile
+from typing import Any, Callable, Dict, List, Optional, Tuple, Set, FrozenSet
 
 import psutil
 
+import config
 from event_bus import EventBus
 from project_health import ProjectHealthSnapshot
 from project_model import Project
 from project_registry import ProjectRegistry
 from safety_engine import evaluate_risk, SAFE, MEDIUM, HIGH, BLOCKED, ACTIONS_LOG_FILE
+
+
+# Whitelist of explicitly authorized actions eligible for autonomous low-risk execution
+ALLOWED_LOW_RISK_ACTIONS: FrozenSet[str] = frozenset({"prune_temp_cache"})
+
+
+def is_safe_cache_path(filepath: str, allowed_base_dir: Optional[str] = None) -> bool:
+    """Validate that filepath resides strictly within an authorized temporary or cache directory."""
+    if not filepath or not isinstance(filepath, str):
+        return False
+    try:
+        norm_p = os.path.abspath(filepath)
+    except Exception:
+        return False
+
+    # Strictly block Windows system directories
+    system_dirs = [
+        os.path.abspath(os.environ.get("SystemRoot", "C:\\Windows")),
+        os.path.abspath(os.environ.get("ProgramFiles", "C:\\Program Files")),
+        os.path.abspath(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")),
+    ]
+    for sys_dir in system_dirs:
+        if norm_p.lower().startswith(sys_dir.lower()):
+            return False
+
+    # Prevent root-level or shallow paths (e.g. C:\file.txt)
+    drive, tail = os.path.splitdrive(norm_p)
+    if tail.strip("\\/").count(os.sep) < 1:
+        return False
+
+    # If allowed_base_dir is specified, verify norm_p is inside it
+    if allowed_base_dir:
+        norm_base = os.path.abspath(allowed_base_dir)
+        try:
+            common = os.path.commonpath([norm_p, norm_base])
+            return common.lower() == norm_base.lower() and norm_p.lower() != norm_base.lower()
+        except (ValueError, Exception):
+            return False
+
+    # Fallback authorized directory roots: system temp or appdata
+    allowed_roots = [
+        os.path.abspath(tempfile.gettempdir()),
+        os.path.abspath(config.APPDATA_DIR),
+    ]
+    for root in allowed_roots:
+        try:
+            if os.path.commonpath([norm_p, root]).lower() == root.lower() and norm_p.lower() != root.lower():
+                return True
+        except (ValueError, Exception):
+            pass
+
+    return False
 
 
 class HeartbeatDecisionType(str, Enum):
@@ -402,17 +456,24 @@ class ProactiveHeartbeatEngine:
 
         # 4. Stale cache cleanup -> Low risk safe maintenance OR quarantined
         if source == "stale_cache" and action_name == "prune_temp_cache":
-            # Safety check on action
-            risk, _ = evaluate_risk("find_files")  # Read/inspection is SAFE
+            files = signal.payload.get("files", [])
+            cache_dir = signal.payload.get("cache_dir")
 
-            if signal.is_untrusted:
-                # Untrusted input quarantine: force PROPOSE_TASK requiring explicit approval
+            # Validate that all target files reside strictly within an authorized temporary or cache directory
+            all_safe = bool(files) and all(is_safe_cache_path(f, allowed_base_dir=cache_dir) for f in files)
+
+            if signal.is_untrusted or not all_safe:
+                reason_msg = (
+                    f"Quarantined external signal: {signal.summary}. Requires confirmation."
+                    if signal.is_untrusted
+                    else f"Quarantined cache prune targeting unauthorized or system paths: {files}. Requires confirmation."
+                )
                 return HeartbeatDecision(
                     decision_type=HeartbeatDecisionType.PROPOSE_TASK,
-                    reason=f"Quarantined external signal: {signal.summary}. Requires confirmation.",
+                    reason=reason_msg,
                     signal=signal,
-                    proposed_task={"action": "prune_temp_cache", "files": signal.payload.get("files")},
-                    risk_level=SAFE,
+                    proposed_task={"action": "prune_temp_cache", "files": files},
+                    risk_level=HIGH if not all_safe else SAFE,
                     requires_approval=True,
                     confidence=signal.confidence,
                     created_at=now,
@@ -422,7 +483,7 @@ class ProactiveHeartbeatEngine:
             action_res = None
             if self.task_executor:
                 try:
-                    action_res = self.task_executor({"action": "prune_temp_cache", "files": signal.payload.get("files")})
+                    action_res = self.task_executor({"action": "prune_temp_cache", "files": files})
                 except Exception as e:
                     action_res = {"status": "FAILED", "error": str(e)}
 
@@ -430,7 +491,7 @@ class ProactiveHeartbeatEngine:
                 decision_type=HeartbeatDecisionType.EXECUTE_LOW_RISK,
                 reason=signal.summary,
                 signal=signal,
-                proposed_task={"action": "prune_temp_cache", "files": signal.payload.get("files")},
+                proposed_task={"action": "prune_temp_cache", "files": files},
                 risk_level=SAFE,
                 requires_approval=False,
                 confidence=signal.confidence,
