@@ -108,6 +108,62 @@ class JevRuntime:
             min_memory_mb=self.min_memory_mb,
         )
 
+        # 4. Capability System & Workflow Engine (Phase 22)
+        from capability_registry import CapabilityRegistry
+        from capability_discovery import CapabilityDiscoveryEngine
+        from capability_workflow import WorkflowComposer
+        from workflow_engine import WorkflowEngine
+        from tool_registry import ToolRegistry
+        from skill_registry import SkillRegistry
+        from tool_scanner import ToolScanner
+        from builtin_skills import get_builtin_skills
+
+        self.tool_registry = ToolRegistry()
+        ToolScanner(self.tool_registry).scan_and_register_all()
+        self.skill_registry = SkillRegistry()
+        for s in get_builtin_skills():
+            self.skill_registry.register(s)
+
+        self.capability_registry = CapabilityRegistry(
+            tool_registry=self.tool_registry,
+            skill_registry=self.skill_registry,
+        )
+        self.capability_discovery = CapabilityDiscoveryEngine(registry=self.capability_registry)
+        self.workflow_composer = WorkflowComposer(
+            registry=self.capability_registry,
+            discovery_engine=self.capability_discovery,
+        )
+        self.workflow_engine = WorkflowEngine(
+            registry=self.capability_registry,
+            event_bus=self.event_bus,
+        )
+
+    def plan_and_execute_workflow(
+        self,
+        goal: str,
+        mode: Any = None,
+        context: Optional[Dict[str, Any]] = None,
+        granted_permissions: Optional[List[TaskPermission]] = None,
+    ) -> Tuple[Optional[Any], Optional[Any], Optional[str]]:
+        """Compose and execute a workflow for an outcome-oriented goal."""
+        from capability_workflow import WorkflowMode
+        effective_mode = mode or WorkflowMode.COPILOT
+        plan, err = self.workflow_composer.compose_workflow(
+            goal=goal,
+            context=context,
+            mode=effective_mode,
+            caller_permissions=granted_permissions,
+        )
+        if not plan:
+            return None, None, err
+
+        report = self.workflow_engine.execute_workflow(
+            plan=plan,
+            context=context,
+            granted_permissions=granted_permissions,
+        )
+        return plan, report, None
+
     @property
     def is_running(self) -> bool:
         with self._lock:
