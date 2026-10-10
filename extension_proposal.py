@@ -29,14 +29,22 @@ class ProposalStatus(str, Enum):
     DETECTED = "DETECTED"                  # Gap observed, candidate acquisition flagged
     INVESTIGATING = "INVESTIGATING"        # Candidate details, provenance, and risks being analyzed
     PROPOSED = "PROPOSED"                  # Structured proposal formed with rationale & rollback plan
+    BEING_BUILT = "BEING_BUILT"            # Generating implementation code in isolated workspace
+    BUILT_UNVALIDATED = "BUILT_UNVALIDATED"# Build completed, awaiting validation
     VALIDATING = "VALIDATING"              # Running bounded static/isolated validation checks
+    VALIDATION_FAILED = "VALIDATION_FAILED"# Validation checks detected failures or policy violations
+    BLOCKED_ISOLATION = "BLOCKED_ISOLATION"# Build/test blocked by missing isolation boundary or permissions
+    READY_FOR_REVIEW = "READY_FOR_REVIEW"  # All required checks passed; review package prepared
     AWAITING_APPROVAL = "AWAITING_APPROVAL"# Validation passed, halted waiting for explicit human authorization
     APPROVED = "APPROVED"                  # Human confirmed scoped authorization
-    REJECTED = "REJECTED"                  # Human or policy explicitly declined proposal (terminal)
+    STAGED = "STAGED"                      # Running in restricted staging environment
     INSTALLING = "INSTALLING"              # Registering/staging files into sandbox/isolated runtime
     VERIFYING = "VERIFYING"                # Verifying operational health post-install
     ACTIVE = "ACTIVE"                      # Fully verified, registered in CapabilityRegistry (terminal)
-    FAILED = "FAILED"                      # Failed during validation, install, or verification (terminal)
+    DEACTIVATED = "DEACTIVATED"            # Rolled back / unregistered
+    REJECTED = "REJECTED"                  # Human or policy explicitly declined proposal (terminal)
+    FAILED_ABANDONED = "FAILED_ABANDONED"  # Failed or abandoned build (terminal)
+    FAILED = "FAILED"                      # Legacy failed status (terminal)
 
 
 # Legal state transition graph
@@ -45,47 +53,102 @@ VALID_PROPOSAL_TRANSITIONS: Dict[ProposalStatus, Set[ProposalStatus]] = {
         ProposalStatus.INVESTIGATING,
         ProposalStatus.REJECTED,
         ProposalStatus.FAILED,
+        ProposalStatus.FAILED_ABANDONED,
     },
     ProposalStatus.INVESTIGATING: {
         ProposalStatus.PROPOSED,
         ProposalStatus.REJECTED,
         ProposalStatus.FAILED,
+        ProposalStatus.FAILED_ABANDONED,
     },
     ProposalStatus.PROPOSED: {
+        ProposalStatus.BEING_BUILT,
         ProposalStatus.VALIDATING,
         ProposalStatus.REJECTED,
         ProposalStatus.FAILED,
+        ProposalStatus.FAILED_ABANDONED,
     },
-    ProposalStatus.VALIDATING: {
-        ProposalStatus.AWAITING_APPROVAL,
+    ProposalStatus.BEING_BUILT: {
+        ProposalStatus.BUILT_UNVALIDATED,
+        ProposalStatus.BLOCKED_ISOLATION,
+        ProposalStatus.FAILED_ABANDONED,
         ProposalStatus.FAILED,
         ProposalStatus.REJECTED,
+    },
+    ProposalStatus.BUILT_UNVALIDATED: {
+        ProposalStatus.VALIDATING,
+        ProposalStatus.FAILED_ABANDONED,
+        ProposalStatus.FAILED,
+        ProposalStatus.REJECTED,
+    },
+    ProposalStatus.VALIDATING: {
+        ProposalStatus.READY_FOR_REVIEW,
+        ProposalStatus.AWAITING_APPROVAL,
+        ProposalStatus.VALIDATION_FAILED,
+        ProposalStatus.BLOCKED_ISOLATION,
+        ProposalStatus.FAILED,
+        ProposalStatus.FAILED_ABANDONED,
+        ProposalStatus.REJECTED,
+    },
+    ProposalStatus.VALIDATION_FAILED: {
+        ProposalStatus.BEING_BUILT,
+        ProposalStatus.FAILED_ABANDONED,
+        ProposalStatus.FAILED,
+        ProposalStatus.REJECTED,
+    },
+    ProposalStatus.BLOCKED_ISOLATION: {
+        ProposalStatus.READY_FOR_REVIEW,
+        ProposalStatus.FAILED_ABANDONED,
+        ProposalStatus.FAILED,
+        ProposalStatus.REJECTED,
+    },
+    ProposalStatus.READY_FOR_REVIEW: {
+        ProposalStatus.AWAITING_APPROVAL,
+        ProposalStatus.REJECTED,
+        ProposalStatus.FAILED_ABANDONED,
+        ProposalStatus.FAILED,
     },
     ProposalStatus.AWAITING_APPROVAL: {
         ProposalStatus.APPROVED,
         ProposalStatus.REJECTED,
+        ProposalStatus.FAILED_ABANDONED,
         ProposalStatus.FAILED,
     },
     ProposalStatus.APPROVED: {
+        ProposalStatus.STAGED,
         ProposalStatus.INSTALLING,
         ProposalStatus.VERIFYING,
         ProposalStatus.ACTIVE,
         ProposalStatus.REJECTED,
+        ProposalStatus.FAILED_ABANDONED,
         ProposalStatus.FAILED,
+    },
+    ProposalStatus.STAGED: {
+        ProposalStatus.ACTIVE,
+        ProposalStatus.DEACTIVATED,
+        ProposalStatus.FAILED_ABANDONED,
+        ProposalStatus.FAILED,
+        ProposalStatus.REJECTED,
     },
     ProposalStatus.INSTALLING: {
         ProposalStatus.VERIFYING,
         ProposalStatus.FAILED,
+        ProposalStatus.FAILED_ABANDONED,
         ProposalStatus.REJECTED,
     },
     ProposalStatus.VERIFYING: {
         ProposalStatus.ACTIVE,
         ProposalStatus.FAILED,
+        ProposalStatus.FAILED_ABANDONED,
         ProposalStatus.REJECTED,
     },
-    ProposalStatus.ACTIVE: set(),    # Terminal state
-    ProposalStatus.REJECTED: set(),  # Terminal state
-    ProposalStatus.FAILED: set(),    # Terminal state
+    ProposalStatus.ACTIVE: {
+        ProposalStatus.DEACTIVATED,
+    },
+    ProposalStatus.DEACTIVATED: set(),
+    ProposalStatus.REJECTED: set(),
+    ProposalStatus.FAILED_ABANDONED: set(),
+    ProposalStatus.FAILED: set(),
 }
 
 
@@ -183,7 +246,7 @@ class ProposalLifecycleManager:
             if proposal.approval_state != "APPROVED":
                 raise ValueError("Cannot transition to APPROVED without a valid human approval grant.")
         elif target_status == ProposalStatus.ACTIVE:
-            if proposal.status not in (ProposalStatus.APPROVED, ProposalStatus.VERIFYING):
+            if proposal.status not in (ProposalStatus.APPROVED, ProposalStatus.VERIFYING, ProposalStatus.STAGED):
                 raise ValueError("Cannot transition to ACTIVE without passing validation and approval.")
             if proposal.approval_state != "APPROVED":
                 raise ValueError("Cannot activate unapproved extension.")
@@ -242,6 +305,7 @@ class ProposalLifecycleManager:
 
             if proposal.approval_state == "APPROVED" or proposal.status in (
                 ProposalStatus.APPROVED,
+                ProposalStatus.STAGED,
                 ProposalStatus.INSTALLING,
                 ProposalStatus.VERIFYING,
             ):

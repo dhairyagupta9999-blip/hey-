@@ -35,6 +35,18 @@ from memory_model import MemoryRecord, MemorySource, MemoryType, sanitize_conten
 from memory_store import MemoryStore
 from tool_model import RiskLevel, ToolHealth, ToolResult
 
+# Phase 24 Components
+from dependency_inspector import DependencyInspector, InstallationPlan
+from extension_build_plan import (
+    BuildPlanValidator,
+    BuildResourceLimits,
+    ExtensionBuildPlan,
+)
+from extension_builder import ExtensionBuilder, GeneratedImplementation
+from extension_workspace import ExtensionWorkspace
+from staged_runtime import StagedExecutionResult, StagedExtensionRuntime
+from staged_validation import ReviewPackage, StageOutcome, StagedValidationPipeline
+
 
 class ExtensionManager:
     """Coordinates safe capability gap detection, proposal generation, validation, and activation."""
@@ -65,6 +77,15 @@ class ExtensionManager:
             network_available=network_available,
         )
         self.validator = ExtensionValidator()
+
+        # Phase 24 Engines
+        self.builder = ExtensionBuilder()
+        self.dependency_inspector = DependencyInspector()
+        self.staged_pipeline = StagedValidationPipeline(self.dependency_inspector)
+        self.staged_runtime = StagedExtensionRuntime(self.capability_registry)
+        self._build_plans: Dict[str, ExtensionBuildPlan] = {}
+        self._review_packages: Dict[str, ReviewPackage] = {}
+        self._workspaces: Dict[str, ExtensionWorkspace] = {}
 
     def _sanitize_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Scrub sensitive credentials and passwords before emitting or persisting."""
@@ -373,3 +394,192 @@ class ExtensionManager:
             if status:
                 return [p for p in self._proposals.values() if p.status == status]
             return list(self._proposals.values())
+
+    # -------------------------------------------------------------------------
+    # Phase 24: Extension Construction, Testing, Staging & Rollback
+    # -------------------------------------------------------------------------
+    def create_build_plan(
+        self,
+        proposal_id: str,
+        functional_requirements: Optional[List[str]] = None,
+        permitted_relative_paths: Optional[List[str]] = None,
+        resource_limits: Optional[BuildResourceLimits] = None,
+    ) -> Tuple[Optional[ExtensionBuildPlan], List[str]]:
+        """Synthesize a validated build plan bound to a proposal's immutable candidate hash."""
+        with self._lock:
+            proposal = self._proposals.get(proposal_id)
+            if not proposal:
+                return None, [f"Proposal '{proposal_id}' not found."]
+
+            plan = ExtensionBuildPlan.from_proposal(
+                proposal=proposal,
+                functional_requirements=functional_requirements,
+                permitted_relative_paths=permitted_relative_paths,
+                resource_limits=resource_limits,
+            )
+
+            is_valid, errors = BuildPlanValidator.validate_plan(plan, proposal)
+            if not is_valid:
+                return None, errors
+
+            self._build_plans[plan.plan_id] = plan
+            return plan, []
+
+    def build_extension(
+        self,
+        plan: ExtensionBuildPlan,
+        custom_code: Optional[str] = None,
+    ) -> Tuple[bool, Optional[GeneratedImplementation], List[str]]:
+        """Construct reviewable extension artifacts in an isolated development workspace."""
+        with self._lock:
+            proposal = self._proposals.get(plan.proposal_id)
+            if not proposal:
+                return False, None, [f"Proposal '{plan.proposal_id}' not found."]
+
+            # Re-verify candidate hash hasn't mutated
+            curr_hash = ExtensionProposal.compute_candidate_hash(proposal.candidate)
+            if curr_hash != plan.candidate_hash:
+                return False, None, ["Candidate mutated before build execution. Re-planning required."]
+
+            try:
+                ProposalLifecycleManager.transition(proposal, ProposalStatus.BEING_BUILT)
+            except ValueError as e:
+                return False, None, [str(e)]
+
+            workspace = ExtensionWorkspace(workspace_id=plan.plan_id, build_plan=plan)
+            self._workspaces[plan.plan_id] = workspace
+
+            success, gen_impl, errors = self.builder.build(plan, workspace, custom_code=custom_code)
+            if not success or not gen_impl:
+                ProposalLifecycleManager.transition(
+                    proposal, ProposalStatus.FAILED_ABANDONED, reason="; ".join(errors)
+                )
+                workspace.cleanup()
+                return False, None, errors
+
+            ProposalLifecycleManager.transition(proposal, ProposalStatus.BUILT_UNVALIDATED)
+
+            self.event_bus.emit(
+                event_type="extension.built",
+                task_id=plan.proposal_id,
+                agent_name="ExtensionManager",
+                data=self._sanitize_data({
+                    "proposal_id": plan.proposal_id,
+                    "plan_id": plan.plan_id,
+                    "files": gen_impl.files_written,
+                }),
+            )
+            return True, gen_impl, []
+
+    def run_staged_validation(
+        self,
+        plan: ExtensionBuildPlan,
+        workspace: ExtensionWorkspace,
+        generated_impl: GeneratedImplementation,
+        has_process_isolation: bool = False,
+    ) -> ReviewPackage:
+        """Execute the 11-stage validation pipeline and generate a reviewable package."""
+        with self._lock:
+            proposal = self._proposals.get(plan.proposal_id)
+            if not proposal:
+                raise ValueError(f"Proposal '{plan.proposal_id}' not found.")
+
+            ProposalLifecycleManager.transition(proposal, ProposalStatus.VALIDATING)
+
+            review_pkg = self.staged_pipeline.run_pipeline(
+                proposal=proposal,
+                plan=plan,
+                workspace=workspace,
+                generated_impl=generated_impl,
+                has_process_isolation=has_process_isolation,
+            )
+
+            self._review_packages[proposal.proposal_id] = review_pkg
+
+            if review_pkg.is_ready_for_review:
+                ProposalLifecycleManager.transition(proposal, ProposalStatus.READY_FOR_REVIEW)
+                ProposalLifecycleManager.transition(proposal, ProposalStatus.AWAITING_APPROVAL)
+            else:
+                if any(s.outcome == StageOutcome.BLOCKED for s in review_pkg.stage_results):
+                    ProposalLifecycleManager.transition(
+                        proposal, ProposalStatus.BLOCKED_ISOLATION, reason="Validation blocked by isolation or permissions"
+                    )
+                else:
+                    ProposalLifecycleManager.transition(
+                        proposal, ProposalStatus.VALIDATION_FAILED, reason="Validation checks failed"
+                    )
+
+            self.event_bus.emit(
+                event_type="extension.validated",
+                task_id=proposal.proposal_id,
+                agent_name="ExtensionManager",
+                data=self._sanitize_data({
+                    "proposal_id": proposal.proposal_id,
+                    "ready": review_pkg.is_ready_for_review,
+                    "passed_stages": review_pkg.passed_stages,
+                    "failed_stages": review_pkg.failed_stages,
+                }),
+            )
+            return review_pkg
+
+    def get_review_package(self, proposal_id: str) -> Optional[ReviewPackage]:
+        """Retrieve the review package for a validated proposal."""
+        with self._lock:
+            return self._review_packages.get(proposal_id)
+
+    def stage_approved_proposal(self, proposal_id: str) -> Tuple[bool, Optional[str]]:
+        """Stage an approved proposal in the restricted staging execution runtime."""
+        with self._lock:
+            proposal = self._proposals.get(proposal_id)
+            if not proposal:
+                return False, f"Proposal '{proposal_id}' not found."
+
+            review_pkg = self._review_packages.get(proposal_id)
+            if not review_pkg:
+                return False, f"No review package found for proposal '{proposal_id}'."
+
+            success, err = self.staged_runtime.stage_candidate(proposal, review_pkg)
+            if not success:
+                return False, err
+
+            ProposalLifecycleManager.transition(proposal, ProposalStatus.STAGED)
+
+            self.event_bus.emit(
+                event_type="extension.staged",
+                task_id=proposal_id,
+                agent_name="ExtensionManager",
+                data=self._sanitize_data({
+                    "proposal_id": proposal_id,
+                    "candidate_id": proposal.candidate.candidate_id,
+                }),
+            )
+            return True, None
+
+    def invoke_staged_capability(
+        self,
+        capability_id: str,
+        caller_permissions: Optional[List[TaskPermission]] = None,
+        inputs: Optional[Dict[str, Any]] = None,
+        timeout_seconds: float = 5.0,
+    ) -> StagedExecutionResult:
+        """Invoke a capability currently running in the staged execution runtime."""
+        return self.staged_runtime.invoke_staged(
+            capability_id=capability_id,
+            caller_permissions=caller_permissions,
+            inputs=inputs,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def rollback_staged_capability(
+        self,
+        capability_id: str,
+        proposal_id: Optional[str] = None,
+    ) -> Tuple[bool, str]:
+        """Unregister staged capability and clean up staged resources with post-verification."""
+        with self._lock:
+            ok, msg = self.staged_runtime.rollback_and_deactivate(capability_id)
+            if ok and proposal_id:
+                proposal = self._proposals.get(proposal_id)
+                if proposal and proposal.status == ProposalStatus.STAGED:
+                    ProposalLifecycleManager.transition(proposal, ProposalStatus.DEACTIVATED)
+            return ok, msg
