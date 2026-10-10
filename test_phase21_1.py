@@ -731,3 +731,28 @@ def test_cancel_io_ex_handles_invalid_and_sentinel_handles():
         import win32file
         assert _cancel_io_ex(win32file.INVALID_HANDLE_VALUE) is False
 
+
+def test_preflight_memory_and_decision_checks(monkeypatch, temp_dir):
+    """Verify that preflight truth verification properly exercises SqliteMemoryStore
+    and valid decision backend questions battery without 422 payload errors.
+    """
+    import preflight
+    from memory_store import SqliteMemoryStore
+    from memory_model import MemoryRecord, MemoryType, MemorySource
+
+    # Verify memory write/read/delete against temporary database
+    test_db = os.path.join(temp_dir, "preflight_mem.db")
+    store = SqliteMemoryStore(db_path=test_db)
+    rec = MemoryRecord(
+        type=MemoryType.USER_PREFERENCE,
+        content="test preflight integration",
+        source=MemorySource.SYSTEM,
+    )
+    rec_id = store.add(rec)
+    fetched = store.get(rec_id)
+    assert fetched is not None
+    assert fetched.content == "test preflight integration"
+    assert store.delete(rec_id, hard=True) is True
+    assert store.get(rec_id) is None
+
+

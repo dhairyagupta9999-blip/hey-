@@ -94,7 +94,7 @@ def run_preflight() -> int:
             print(" [WARN] Jev decision backend key missing in secrets store (TypeSafe key required for live turns)")
             warns += 1
         else:
-            ans, dec_ms, cost = backend.decide([("app", "open", "spotify")], "open spotify")
+            ans, dec_ms, cost = backend.decide(siri.QUESTIONS, "open spotify")
             print(f" [PASS] Jev decision backend functional ({backend.name}, {dec_ms} ms, ${cost:.5f})")
             passes += 1
     except Exception as e:
@@ -150,10 +150,30 @@ def run_preflight() -> int:
         print(f" [FAIL] Tier 2 app resolution error: {e}")
         fails += 1
 
-    # 8. Memory Engine (Phase 12 Pending)
-    # As instructed in brief: "memory write then read (after Phase 12)"
-    print(" [WARN] Memory write/read deferred until Phase 12")
-    warns += 1
+    # 8. Memory Engine (Phase 16 Persistent Memory)
+    try:
+        from memory_store import SqliteMemoryStore
+        from memory_model import MemoryRecord, MemoryType, MemorySource
+        store = SqliteMemoryStore()
+        t0 = time.time()
+        test_rec = MemoryRecord(
+            type=MemoryType.USER_PREFERENCE,
+            content="preflight memory check preference",
+            source=MemorySource.SYSTEM,
+        )
+        rec_id = store.add(test_rec)
+        retrieved = store.get(rec_id)
+        mem_ms = int((time.time() - t0) * 1000)
+        if retrieved and retrieved.content == "preflight memory check preference":
+            store.delete(rec_id, hard=True)
+            print(f" [PASS] Memory engine functional (SQLite WAL, {mem_ms} ms)")
+            passes += 1
+        else:
+            print(" [FAIL] Memory record write succeeded but read/verify failed")
+            fails += 1
+    except Exception as e:
+        print(f" [FAIL] Memory engine failed: {e}")
+        fails += 1
 
     # 9. Safety Engine Blocks Run-Dialog and Admin Tools
     try:
