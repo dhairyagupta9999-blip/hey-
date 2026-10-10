@@ -34,6 +34,28 @@ except ImportError:
     HAS_WIN32 = False
 
 
+def _cancel_io_ex(handle: Any, overlapped: Any = None) -> bool:
+    """Invoke Win32 CancelIoEx cross-thread cancellation via ctypes.
+    
+    win32file.CancelIo only cancels I/O issued by the calling thread.
+    Cross-thread cancellation requires CancelIoEx from kernel32.
+    """
+    if not handle or handle == getattr(win32file, "INVALID_HANDLE_VALUE", None):
+        return False
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        k32.CancelIoEx.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        k32.CancelIoEx.restype = ctypes.c_int
+        h_val = int(handle)
+        ov_val = ctypes.c_void_p(overlapped) if overlapped else None
+        res = k32.CancelIoEx(h_val, ov_val)
+        return bool(res)
+    except Exception:
+        return False
+
+
+
 
 class BaseWatcher:
     """Base watcher with self-health tracking, debouncing, and bounded restart."""
@@ -388,6 +410,12 @@ class WindowsNativeDirectoryWatcher(BaseWatcher):
         self.using_fallback: bool = False
         self._dir_handle: Any = None
         self._h_event: Any = None
+        self._h_stop_event: Any = None
+        self._buffer: Any = None
+        self._overlapped: Any = None
+        self._stop_requested: bool = False
+        self._timeout_occurred: bool = False
+        self.last_error: Optional[str] = None
         self._pending_settle: Dict[str, Dict[str, Any]] = {}
         self._polling_fallback_watcher: Optional[FilesystemWatcher] = None
 
@@ -396,6 +424,10 @@ class WindowsNativeDirectoryWatcher(BaseWatcher):
         if not self._is_safe_target(target):
             self.definition.state = WatcherState.FAILED
             raise ValueError(f"Safety check failed: Target '{target}' rejected by safety policy.")
+
+        self._stop_requested = False
+        self._timeout_occurred = False
+        self.last_error = None
 
         if not HAS_WIN32 or not os.path.isdir(target):
             self.using_fallback = True
@@ -414,6 +446,10 @@ class WindowsNativeDirectoryWatcher(BaseWatcher):
                 None,
             )
             self._h_event = win32event.CreateEvent(None, True, False, None)
+            self._h_stop_event = win32event.CreateEvent(None, True, False, None)
+            self._buffer = win32file.AllocateReadBuffer(8192)
+            self._overlapped = pywintypes.OVERLAPPED()
+            self._overlapped.hEvent = self._h_event
             self.using_fallback = False
         except Exception:
             self.using_fallback = True
@@ -485,31 +521,62 @@ class WindowsNativeDirectoryWatcher(BaseWatcher):
             return
 
         target = self.definition.target
-        buffer = win32file.AllocateReadBuffer(8192)
-        overlapped = pywintypes.OVERLAPPED()
-        overlapped.hEvent = self._h_event
+        dir_handle = self._dir_handle
+        h_event = self._h_event
+        h_stop = self._h_stop_event
+        buffer = self._buffer
+        overlapped = self._overlapped
 
-        while self._running:
-            try:
-                win32event.ResetEvent(self._h_event)
-                win32file.ReadDirectoryChangesW(
-                    self._dir_handle,
-                    buffer,
-                    True,
-                    win32con.FILE_NOTIFY_CHANGE_FILE_NAME |
-                    win32con.FILE_NOTIFY_CHANGE_DIR_NAME |
-                    win32con.FILE_NOTIFY_CHANGE_LAST_WRITE |
-                    win32con.FILE_NOTIFY_CHANGE_SIZE,
-                    overlapped,
-                )
+        read_pending = False
 
-                wait_res = win32event.WaitForSingleObject(self._h_event, 200)
-                if not self._running:
+        while self._running and not self._stop_requested:
+            if not read_pending:
+                if h_stop and win32event.WaitForSingleObject(h_stop, 0) == win32event.WAIT_OBJECT_0:
                     break
-                now = time.time()
 
-                if wait_res == win32event.WAIT_OBJECT_0:
-                    nbytes = win32file.GetOverlappedResult(self._dir_handle, overlapped, False)
+                win32event.ResetEvent(h_event)
+                try:
+                    win32file.ReadDirectoryChangesW(
+                        dir_handle,
+                        buffer,
+                        True,
+                        win32con.FILE_NOTIFY_CHANGE_FILE_NAME |
+                        win32con.FILE_NOTIFY_CHANGE_DIR_NAME |
+                        win32con.FILE_NOTIFY_CHANGE_LAST_WRITE |
+                        win32con.FILE_NOTIFY_CHANGE_SIZE,
+                        overlapped,
+                    )
+                    read_pending = True
+                except pywintypes.error as pe:
+                    if pe.winerror in (995, 6, 1168) or self._stop_requested or not self._running:
+                        break
+                    if not self._running:
+                        break
+                    self.using_fallback = True
+                    self._fallback_init()
+                    if self._polling_fallback_watcher:
+                        self._polling_fallback_watcher._watch_loop()
+                    break
+                except Exception:
+                    if not self._running or self._stop_requested:
+                        break
+                    self.using_fallback = True
+                    self._fallback_init()
+                    if self._polling_fallback_watcher:
+                        self._polling_fallback_watcher._watch_loop()
+                    break
+
+            wait_objects = [h_event]
+            if h_stop:
+                wait_objects.append(h_stop)
+
+            wait_res = win32event.WaitForMultipleObjects(wait_objects, False, 200)
+            now = time.time()
+
+            if wait_res == win32event.WAIT_OBJECT_0:
+                read_pending = False
+                try:
+                    nbytes = win32file.GetOverlappedResult(dir_handle, overlapped, False)
                     notifications = win32file.FILE_NOTIFY_INFORMATION(buffer, nbytes)
                     for action, rel_path in notifications:
                         if not self._matches_filters(rel_path):
@@ -550,56 +617,145 @@ class WindowsNativeDirectoryWatcher(BaseWatcher):
                         elif action in (4, 5):
                             self.emit_debounced_event("filesystem.file_renamed", {"file": full_p, "path": full_p, "file_path": full_p, "native": True, "action": action})
 
-                elif wait_res == win32event.WAIT_TIMEOUT:
-                    pass
-
-                if self.settle_window_sec > 0.0:
-                    self._check_settled_events(now)
-
-            except Exception:
-                if not self._running:
+                except pywintypes.error as pe:
+                    if pe.winerror in (995, 6, 1168) or self._stop_requested or not self._running:
+                        # 995: ERROR_OPERATION_ABORTED - normal cancellation via CancelIoEx
+                        # 6: ERROR_INVALID_HANDLE
+                        # 1168: ERROR_NOT_FOUND
+                        break
+                    if not self._running:
+                        break
+                    self.using_fallback = True
+                    self._fallback_init()
+                    if self._polling_fallback_watcher:
+                        self._polling_fallback_watcher._watch_loop()
                     break
-                self.using_fallback = True
-                self._fallback_init()
-                if self._polling_fallback_watcher:
-                    self._polling_fallback_watcher._watch_loop()
+
+            elif len(wait_objects) > 1 and wait_res == win32event.WAIT_OBJECT_0 + 1:
+                if read_pending:
+                    _cancel_io_ex(dir_handle)
+                    try:
+                        win32file.GetOverlappedResult(dir_handle, overlapped, True)
+                    except pywintypes.error:
+                        pass
+                    read_pending = False
                 break
 
-    def stop(self) -> None:
+            elif wait_res == win32event.WAIT_TIMEOUT:
+                if self._stop_requested or not self._running:
+                    if read_pending:
+                        _cancel_io_ex(dir_handle)
+                        try:
+                            win32file.GetOverlappedResult(dir_handle, overlapped, True)
+                        except pywintypes.error:
+                            pass
+                        read_pending = False
+                    break
+                # Pending read remains active, wait slice repeats
+
+            if self.settle_window_sec > 0.0:
+                self._check_settled_events(now)
+
+        if read_pending and dir_handle:
+            _cancel_io_ex(dir_handle)
+            try:
+                win32file.GetOverlappedResult(dir_handle, overlapped, True)
+            except pywintypes.error:
+                pass
+            read_pending = False
+
+    def stop(self, timeout: float = 3.0) -> bool:
         with self._lock:
+            if self._stop_requested and not self._running and self._dir_handle is None:
+                # Idempotent: already cleanly stopped
+                return True
+
+            self._stop_requested = True
             self._running = False
-            if self._dir_handle and self._dir_handle != getattr(win32file, "INVALID_HANDLE_VALUE", None):
+
+            if self._pending_events:
+                self._flush_debounced_events()
+            if self._debounce_timer:
+                self._debounce_timer.cancel()
+                self._debounce_timer = None
+
+            if self.using_fallback and self._polling_fallback_watcher:
+                self._polling_fallback_watcher._running = False
+
+            # 1. Signal shutdown event to unblock worker wait immediately
+            if self._h_stop_event:
                 try:
-                    win32file.CancelIo(self._dir_handle)
-                except Exception:
-                    pass
-            if self._h_event:
-                try:
-                    win32event.SetEvent(self._h_event)
+                    win32event.SetEvent(self._h_stop_event)
                 except Exception:
                     pass
 
-        # Join the loop thread before closing handles
+            # 2. Cancel outstanding overlapped I/O cross-thread via CancelIoEx
+            if self._dir_handle and self._dir_handle != getattr(win32file, "INVALID_HANDLE_VALUE", None):
+                _cancel_io_ex(self._dir_handle)
+
+        # 3. Wait for worker thread to exit completely (confirming I/O completion and drain)
         if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=2.0)
+            self._thread.join(timeout=timeout)
 
         with self._lock:
+            # 4. Check whether thread shutdown timed out
+            if self._thread and self._thread.is_alive():
+                self._timeout_occurred = True
+                self.definition.state = WatcherState.FAILED
+                self.last_error = f"Watcher stop timed out after {timeout}s; worker thread still active. Native handles retained."
+                self.event_bus.emit(
+                    "watcher.failed",
+                    self.definition.watcher_id,
+                    data={"error": self.last_error},
+                )
+                return False
+
+            # 5. Thread has terminated cleanly: safe to close native handles
+            self._timeout_occurred = False
             if self._dir_handle and self._dir_handle != getattr(win32file, "INVALID_HANDLE_VALUE", None):
                 try:
                     win32file.CloseHandle(self._dir_handle)
                 except Exception:
                     pass
                 self._dir_handle = None
+
             if self._h_event:
                 try:
-                    win32file.CloseHandle(self._h_event)
+                    win32event.CloseHandle(self._h_event)
                 except Exception:
                     pass
                 self._h_event = None
 
-        if self._polling_fallback_watcher:
-            self._polling_fallback_watcher.stop()
-        super().stop()
+            if self._h_stop_event:
+                try:
+                    win32event.CloseHandle(self._h_stop_event)
+                except Exception:
+                    pass
+                self._h_stop_event = None
+
+            self._buffer = None
+            self._overlapped = None
+
+            if self._polling_fallback_watcher:
+                self._polling_fallback_watcher.stop()
+                self._polling_fallback_watcher = None
+
+            self.event_bus.emit(
+                event_type="watcher.stopped",
+                task_id=self.definition.watcher_id,
+                agent_name=self.__class__.__name__,
+                data={"type": self.definition.type.value},
+            )
+            return True
+
+    def get_health(self) -> Dict[str, Any]:
+        health = super().get_health()
+        with self._lock:
+            health["using_fallback"] = self.using_fallback
+            health["has_native_handle"] = self._dir_handle is not None
+            health["shutdown_timed_out"] = self._timeout_occurred
+            health["last_error"] = self.last_error
+            return health
 
     def poll_cycle(self, force_flush: bool = True, force_settle: bool = False) -> None:
         """Poll cycle for testing or manual stepping."""
