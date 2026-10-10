@@ -124,9 +124,16 @@ class JevRuntime:
         for s in get_builtin_skills():
             self.skill_registry.register(s)
 
+        from skill_executor import SkillExecutor
+
+        self.skill_executor = SkillExecutor(
+            tool_registry=self.tool_registry,
+            event_bus=self.event_bus,
+        )
         self.capability_registry = CapabilityRegistry(
             tool_registry=self.tool_registry,
             skill_registry=self.skill_registry,
+            skill_executor=self.skill_executor,
         )
         self.capability_discovery = CapabilityDiscoveryEngine(registry=self.capability_registry)
         self.workflow_composer = WorkflowComposer(

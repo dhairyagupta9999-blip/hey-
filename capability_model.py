@@ -267,7 +267,10 @@ class CapabilityDefinition:
 
         handler = None
         if executor and hasattr(executor, "execute_skill"):
-            handler = lambda **kwargs: executor.execute_skill(skill, kwargs)
+            target_skill = skill
+            handler = lambda **kwargs: executor.execute_skill(
+                target_skill, kwargs, granted_permissions=list(target_skill.permissions), is_approved=True
+            )
 
         return cls(
             capability_id=f"skill:{skill.skill_id}",

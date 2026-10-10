@@ -46,6 +46,7 @@ class StepStatus(str, Enum):
     SKIPPED = "SKIPPED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+    ROLLED_BACK = "ROLLED_BACK"
 
 
 @dataclass

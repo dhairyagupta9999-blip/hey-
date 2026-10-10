@@ -92,6 +92,8 @@ class ToolRegistry:
             return [
                 t for t in self._tools.values()
                 if any(cap_lower in c.lower() for c in t.capabilities)
+                or cap_lower == t.category.lower()
+                or cap_lower in t.tool_id.lower()
             ]
 
     def find_by_permission(self, permission: TaskPermission) -> List[ToolDefinition]:

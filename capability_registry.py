@@ -47,9 +47,19 @@ class CapabilityRegistry:
             return bool(self._capabilities.pop(capability_id, None))
 
     def get(self, capability_id: str) -> Optional[CapabilityDefinition]:
-        """Retrieve capability by identifier."""
+        """Retrieve capability by identifier, supporting prefixed and unprefixed forms."""
         with self._lock:
-            return self._capabilities.get(capability_id)
+            if capability_id in self._capabilities:
+                return self._capabilities[capability_id]
+            if capability_id.startswith("tool:") and capability_id[5:] in self._capabilities:
+                return self._capabilities[capability_id[5:]]
+            if f"tool:{capability_id}" in self._capabilities:
+                return self._capabilities[f"tool:{capability_id}"]
+            if capability_id.startswith("skill:") and capability_id[6:] in self._capabilities:
+                return self._capabilities[capability_id[6:]]
+            if f"skill:{capability_id}" in self._capabilities:
+                return self._capabilities[f"skill:{capability_id}"]
+            return None
 
     def list(
         self,

@@ -34,9 +34,9 @@ from capability_model import (
 from capability_registry import CapabilityRegistry
 from capability_workflow import StepStatus, WorkflowMode, WorkflowPlan, WorkflowStep
 from event_bus import EventBus
-from memory_model import MemoryRecord, MemorySource, MemoryType
+from memory_model import MemoryRecord, MemorySource, MemoryType, sanitize_content
 from memory_store import MemoryStore
-from tool_model import RiskLevel, ToolResult
+from tool_model import RiskLevel, ToolHealth, ToolResult
 
 
 class WorkflowExecutionStatus(str, Enum):
@@ -47,6 +47,7 @@ class WorkflowExecutionStatus(str, Enum):
     FAILED = "FAILED"
     ABORTED_POLICY = "ABORTED_POLICY"
     ROLLED_BACK = "ROLLED_BACK"
+    CANCELLED = "CANCELLED"
 
 
 @dataclass
@@ -64,6 +65,7 @@ class WorkflowExecutionReport:
     error: Optional[str] = None
     verification_summary: str = ""
     rolled_back: bool = False
+    rollback_summary: str = ""
     duration_ms: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
@@ -79,6 +81,7 @@ class WorkflowExecutionReport:
             "error": self.error,
             "verification_summary": self.verification_summary,
             "rolled_back": self.rolled_back,
+            "rollback_summary": self.rollback_summary,
             "duration_ms": round(self.duration_ms, 2),
             "step_results": self.step_results,
         }
@@ -101,10 +104,29 @@ class WorkflowEngine:
         self.max_cpu_percent = max_cpu_percent
         self.max_memory_percent = max_memory_percent
         self.approved_checkpoints: Set[Tuple[str, str]] = set()  # (workflow_id, step_id)
+        self._cancelled_workflows: Set[str] = set()
 
     def approve_checkpoint(self, workflow_id: str, step_id: str) -> None:
         """Record human approval for a gated workflow step."""
         self.approved_checkpoints.add((workflow_id, step_id))
+
+    def cancel_workflow(self, workflow_id: str) -> None:
+        """Mark a workflow as cancelled to halt remaining steps."""
+        self._cancelled_workflows.add(workflow_id)
+
+    def _sanitize_payload(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Redact secrets and sensitive tokens from event bus payloads."""
+        cleaned: Dict[str, Any] = {}
+        for k, v in data.items():
+            if isinstance(v, str):
+                cleaned[k] = sanitize_content(v)
+            elif isinstance(v, dict):
+                cleaned[k] = self._sanitize_payload(v)
+            elif isinstance(v, list):
+                cleaned[k] = [sanitize_content(x) if isinstance(x, str) else x for x in v]
+            else:
+                cleaned[k] = v
+        return cleaned
 
     def execute_workflow(
         self,
@@ -117,12 +139,27 @@ class WorkflowEngine:
         ctx = dict(context or {})
         granted_perms = set(granted_permissions or [])
 
-        # Emit workflow start event
+        # Duplicate Execution Guard: check if all steps are already COMPLETED
+        if plan.steps and all(s.status == StepStatus.COMPLETED for s in plan.steps):
+            duration = (time.time() - t_start) * 1000
+            return WorkflowExecutionReport(
+                workflow_id=plan.workflow_id,
+                goal=plan.goal,
+                mode=plan.mode,
+                status=WorkflowExecutionStatus.COMPLETED,
+                steps_completed=len(plan.steps),
+                steps_total=len(plan.steps),
+                step_results={s.step_id: s.to_dict() for s in plan.steps},
+                verification_summary="Workflow was already completed; duplicate execution prevented.",
+                duration_ms=duration,
+            )
+
+        # Emit workflow start event with secret redaction
         self.event_bus.emit(
             event_type="workflow.started",
             task_id=plan.workflow_id,
             agent_name="WorkflowEngine",
-            data={"goal": plan.goal, "mode": plan.mode.value, "steps": len(plan.steps)},
+            data=self._sanitize_payload({"goal": plan.goal, "mode": plan.mode.value, "steps": len(plan.steps)}),
         )
 
         # 1. Mode Check: MANUAL Mode
@@ -193,10 +230,33 @@ class WorkflowEngine:
                     executed_for_rollback.append(step)
                 continue
 
+            # In-loop Cancellation Check
+            if plan.workflow_id in self._cancelled_workflows:
+                step.status = StepStatus.CANCELLED
+                return self._abort_failure(
+                    plan,
+                    step,
+                    "Workflow execution cancelled by user request.",
+                    t_start,
+                    executed_for_rollback,
+                    status=WorkflowExecutionStatus.CANCELLED,
+                )
+
             cap = self.registry.get(step.capability_id)
             if not cap:
                 return self._abort_failure(
                     plan, step, f"Capability '{step.capability_id}' is not registered.", t_start, executed_for_rollback
+                )
+
+            # Capability Availability & Health Check
+            if not cap.is_available:
+                return self._abort_failure(
+                    plan,
+                    step,
+                    f"Capability '{step.capability_id}' is currently unavailable (health: {cap.health.value}).",
+                    t_start,
+                    executed_for_rollback,
+                    status=WorkflowExecutionStatus.ABORTED_POLICY,
                 )
 
             # Check permissions
@@ -223,7 +283,7 @@ class WorkflowEngine:
                 self.event_bus.emit(
                     "workflow.step_skipped",
                     plan.workflow_id,
-                    data={"step_id": step.step_id, "condition": step.condition},
+                    data=self._sanitize_payload({"step_id": step.step_id, "condition": step.condition}),
                 )
                 continue
 
@@ -246,12 +306,12 @@ class WorkflowEngine:
                         self.event_bus.emit(
                             "workflow.approval_requested",
                             plan.workflow_id,
-                            data={
+                            data=self._sanitize_payload({
                                 "step_id": step.step_id,
                                 "capability": cap.name,
                                 "risk_level": cap.risk_level.value,
                                 "reason": step.approval_reason,
-                            },
+                            }),
                         )
                         duration = (time.time() - t_start) * 1000
                         return WorkflowExecutionReport(
@@ -277,8 +337,26 @@ class WorkflowEngine:
                     executed_for_rollback,
                 )
 
-            # Resolve Data-Pipelined Inputs
-            resolved_inputs = self._resolve_inputs(step.inputs, ctx)
+            # Resolve Data-Pipelined Inputs safely (no eval/exec, detect unresolved refs)
+            resolved_inputs, resolve_err = self._resolve_inputs(step.inputs, ctx)
+            if resolve_err:
+                return self._abort_failure(
+                    plan, step, f"Input resolution error: {resolve_err}", t_start, executed_for_rollback
+                )
+
+            # Validate Required Arguments of capability
+            missing_args = [
+                arg for arg in cap.required_arguments
+                if arg not in resolved_inputs or resolved_inputs[arg] is None
+            ]
+            if missing_args:
+                return self._abort_failure(
+                    plan,
+                    step,
+                    f"Missing required argument(s) for capability '{cap.name}': {missing_args}",
+                    t_start,
+                    executed_for_rollback,
+                )
 
             # Execute Step with Bounded Retries
             step.status = StepStatus.RUNNING
@@ -318,7 +396,7 @@ class WorkflowEngine:
             self.event_bus.emit(
                 "workflow.step_completed",
                 plan.workflow_id,
-                data={"step_id": step.step_id, "capability_id": cap.capability_id, "verified": True},
+                data=self._sanitize_payload({"step_id": step.step_id, "capability_id": cap.capability_id, "verified": True}),
             )
 
         duration = (time.time() - t_start) * 1000
@@ -331,18 +409,17 @@ class WorkflowEngine:
                     type=MemoryType.WORKFLOW,
                     content=f"Workflow successfully executed for goal: '{plan.goal}' with {completed_steps} steps.",
                     source=MemorySource.SYSTEM,
-                    metadata={"workflow_id": plan.workflow_id, "steps": len(plan.steps)},
+                    metadata=self._sanitize_payload({"workflow_id": plan.workflow_id, "steps": len(plan.steps)}),
                 )
                 self.memory_store.add(rec)
             except Exception as e:
                 import logging
                 logging.getLogger("hey_jev.workflow").warning("Failed to store memory: %s", e)
 
-
         self.event_bus.emit(
             "workflow.completed",
             plan.workflow_id,
-            data={"steps_completed": completed_steps, "duration_ms": duration},
+            data=self._sanitize_payload({"steps_completed": completed_steps, "duration_ms": duration}),
         )
 
         return WorkflowExecutionReport(
@@ -357,38 +434,74 @@ class WorkflowEngine:
             duration_ms=duration,
         )
 
-    def _resolve_inputs(self, raw_inputs: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-        """Interpolate dynamic variables from context and previous step outputs."""
+    def _resolve_inputs(
+        self, raw_inputs: Dict[str, Any], context: Dict[str, Any]
+    ) -> Tuple[Dict[str, Any], Optional[str]]:
+        """Interpolate dynamic variables from context and previous step outputs without eval/exec."""
         resolved: Dict[str, Any] = {}
         for k, v in raw_inputs.items():
             if isinstance(v, str) and v.startswith("$"):
                 var_path = v[1:]  # e.g., "step_list_photos.entries[3].path"
-                resolved[k] = self._resolve_path(var_path, context)
+                val, found = self._resolve_path_with_status(var_path, context)
+                if not found:
+                    return {}, f"Unresolved variable reference '${var_path}'"
+                resolved[k] = val
             else:
                 resolved[k] = v
-        return resolved
+        return resolved, None
 
-    def _resolve_path(self, path_expr: str, context: Dict[str, Any]) -> Any:
-        """Resolve property or array index expressions against context dict."""
+    def _resolve_path_with_status(self, path_expr: str, context: Dict[str, Any]) -> Tuple[Any, bool]:
+        """Resolve property or array index expressions against context dict safely.
+
+        Returns (value, found_bool).
+        """
         if path_expr in context:
-            return context[path_expr]
+            return context[path_expr], True
 
         parts = path_expr.split(".")
-        curr: Any = context
-        for part in parts:
+        if not parts:
+            return None, False
+
+        # First segment lookup in context
+        first = parts[0]
+        m_first = re.match(r"^(\w+)\[(\d+)\]$", first)
+        if m_first:
+            field_name, idx_str = m_first.group(1), int(m_first.group(2))
+            if field_name not in context:
+                return None, False
+            curr = context[field_name]
+            if not isinstance(curr, list) or not (0 <= idx_str < len(curr)):
+                return None, False
+            curr = curr[idx_str]
+        else:
+            if first not in context:
+                return None, False
+            curr = context[first]
+
+        # Remaining segments
+        for part in parts[1:]:
             if not isinstance(curr, dict):
-                return None
+                return None, False
             m = re.match(r"^(\w+)\[(\d+)\]$", part)
             if m:
                 field_name, idx_str = m.group(1), int(m.group(2))
-                curr = curr.get(field_name)
-                if isinstance(curr, list) and 0 <= idx_str < len(curr):
-                    curr = curr[idx_str]
-                else:
-                    return None
+                if field_name not in curr:
+                    return None, False
+                curr = curr[field_name]
+                if not isinstance(curr, list) or not (0 <= idx_str < len(curr)):
+                    return None, False
+                curr = curr[idx_str]
             else:
-                curr = curr.get(part)
-        return curr
+                if part not in curr:
+                    return None, False
+                curr = curr[part]
+
+        return curr, True
+
+    def _resolve_path(self, path_expr: str, context: Dict[str, Any]) -> Any:
+        """Resolve property or array index expressions against context dict (backward-compatible)."""
+        val, _ = self._resolve_path_with_status(path_expr, context)
+        return val
 
     def _check_preconditions(self, cap: CapabilityDefinition, context: Dict[str, Any]) -> bool:
         """Verify preconditions defined on the capability."""
@@ -439,7 +552,7 @@ class WorkflowEngine:
         cap: CapabilityDefinition,
         inputs: Dict[str, Any],
     ) -> Tuple[bool, Any, Optional[str]]:
-        """Execute step handler with bounded retries."""
+        """Execute step handler with bounded retries and result unwrapping."""
         handler = cap.handler
         if not handler or not callable(handler):
             return False, None, f"No callable execution handler for capability '{cap.capability_id}'."
@@ -455,7 +568,7 @@ class WorkflowEngine:
                 duration_ms = (time.time() - t0) * 1000
                 step.execution_duration_ms = duration_ms
 
-                # Check ToolResult wrapper if returned
+                # Check ToolResult wrapper
                 if isinstance(res, ToolResult):
                     if res.is_success:
                         if res.rollback_metadata:
@@ -463,6 +576,13 @@ class WorkflowEngine:
                         return True, res.output, None
                     else:
                         last_error = res.error or "Tool execution reported failure status"
+                # Check AgentResult wrapper (e.g. from SkillExecutor)
+                elif isinstance(res, AgentResult):
+                    if res.is_success:
+                        out = res.result if res.result is not None else {"summary": res.summary, "status": res.status.value}
+                        return True, out, None
+                    else:
+                        last_error = res.error or res.summary or "Skill execution reported failure status"
                 elif isinstance(res, dict) and res.get("status") in ("FAILED", "FAILURE"):
                     last_error = res.get("error") or "Dictionary output returned failure"
                 else:
@@ -483,7 +603,7 @@ class WorkflowEngine:
         inputs: Dict[str, Any],
         output: Any,
     ) -> Tuple[bool, Dict[str, Any], Optional[str]]:
-        """Perform independent outcome verification; check observable criteria."""
+        """Perform independent physical outcome verification; check observable criteria."""
         evidence: Dict[str, Any] = {"output_type": type(output).__name__}
 
         if output is None:
@@ -500,10 +620,17 @@ class WorkflowEngine:
                 evidence["entries_count"] = len(entries)
             elif crit == "file_moved_to_destination":
                 dest = inputs.get("destination")
-                if dest and not os.path.exists(dest) and not (isinstance(output, dict) and output.get("dry_run")):
-                    return False, evidence, f"Destination file does not exist: {dest}"
+                src = inputs.get("source")
+                if isinstance(output, dict) and output.get("dry_run"):
+                    pass
+                else:
+                    if not dest or not os.path.exists(dest):
+                        return False, evidence, f"Destination file does not exist: {dest}"
+                    # Independent verification: detect stale destination file if source still exists
+                    if src and os.path.exists(src):
+                        return False, evidence, f"Stale file detection: source file still exists at '{src}'"
+                    evidence["verified_move"] = f"src removed, dest confirmed at {dest}"
             elif crit == "wallpaper_path_set_in_registry":
-                # Verify that wallpaper target path was provided and non-empty
                 target_path = inputs.get("path")
                 if not target_path or not str(target_path).strip():
                     return False, evidence, "Wallpaper path was empty or unresolved."
@@ -521,19 +648,18 @@ class WorkflowEngine:
         status: WorkflowExecutionStatus = WorkflowExecutionStatus.FAILED,
     ) -> WorkflowExecutionReport:
         """Handle failure, emit audit logs, and trigger rollback for executed reversible steps."""
-        rolled_back = False
-        if executed_steps:
-            rolled_back = self._rollback_steps(executed_steps)
+        rolled_back, rollback_summary = self._rollback_steps(executed_steps) if executed_steps else (False, "No steps executed")
 
         duration = (time.time() - t_start) * 1000
         self.event_bus.emit(
             "workflow.failed",
             plan.workflow_id,
-            data={
+            data=self._sanitize_payload({
                 "failed_step": failing_step.step_id,
                 "error": error_msg,
                 "rolled_back": rolled_back,
-            },
+                "rollback_summary": rollback_summary,
+            }),
         )
 
         return WorkflowExecutionReport(
@@ -545,24 +671,53 @@ class WorkflowEngine:
             steps_total=len(plan.steps),
             error=error_msg,
             rolled_back=rolled_back,
+            rollback_summary=rollback_summary,
             duration_ms=duration,
         )
 
-    def _rollback_steps(self, executed_steps: List[WorkflowStep]) -> bool:
+    def _rollback_steps(self, executed_steps: List[WorkflowStep]) -> Tuple[bool, str]:
         """Roll back executed steps in reverse order where rollback metadata is present."""
-        success = True
+        attempted = 0
+        succeeded = 0
+        failed = 0
+
         for step in reversed(executed_steps):
             if step.rollback_metadata:
                 cap = self.registry.get(step.capability_id)
                 if cap and cap.supports_rollback:
+                    attempted += 1
                     try:
-                        # If a rollback handler exists or move_file rollback
                         undo_action = step.rollback_metadata.get("undo_action")
-                        if undo_action == "move_file":
-                            orig_src = step.rollback_metadata.get("source")
-                            orig_dest = step.rollback_metadata.get("destination")
-                            if orig_dest and os.path.exists(orig_dest):
+                        if undo_action in ("move", "move_file"):
+                            orig_dest = step.rollback_metadata.get("restore_source") or step.rollback_metadata.get("destination")
+                            orig_src = step.rollback_metadata.get("restore_destination") or step.rollback_metadata.get("source")
+                            if orig_dest and os.path.exists(orig_dest) and orig_src:
+                                if os.path.exists(orig_src):
+                                    os.remove(orig_src)
                                 os.rename(orig_dest, orig_src)
+                                step.status = StepStatus.ROLLED_BACK
+                                succeeded += 1
+                            else:
+                                failed += 1
+                        elif undo_action == "delete_file":
+                            target = step.rollback_metadata.get("target")
+                            if target and os.path.exists(target):
+                                os.remove(target)
+                                step.status = StepStatus.ROLLED_BACK
+                                succeeded += 1
+                            else:
+                                failed += 1
+                        elif callable(step.rollback_metadata.get("handler")):
+                            step.rollback_metadata["handler"]()
+                            step.status = StepStatus.ROLLED_BACK
+                            succeeded += 1
+                        else:
+                            failed += 1
                     except Exception:
-                        success = False
-        return success
+                        failed += 1
+
+        if attempted == 0:
+            return False, "No reversible steps executed to roll back."
+        if failed > 0:
+            return False, f"Partial rollback: {succeeded} succeeded, {failed} failed."
+        return True, f"Successfully rolled back {succeeded} step(s)."
