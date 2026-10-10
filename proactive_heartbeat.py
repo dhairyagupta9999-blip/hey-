@@ -308,6 +308,41 @@ class StaleCacheSignalProvider(BaseSignalProvider):
         return []
 
 
+class OperationalHealthSignalProvider(BaseSignalProvider):
+    """Identifies operational health degradations and failures across subsystems."""
+
+    def __init__(self, health_coordinator: Any) -> None:
+        self.health_coordinator = health_coordinator
+
+    def get_signals(self) -> List[HeartbeatSignal]:
+        if not self.health_coordinator:
+            return []
+
+        signals: List[HeartbeatSignal] = []
+        try:
+            from operational_health import HealthState
+            for obs in self.health_coordinator.get_all_health():
+                if obs.state in (HealthState.DEGRADED, HealthState.UNAVAILABLE, HealthState.NEEDS_ATTENTION):
+                    sev = SignalSeverity.HIGH if obs.state in (HealthState.UNAVAILABLE, HealthState.NEEDS_ATTENTION) else SignalSeverity.MEDIUM
+                    signals.append(
+                        HeartbeatSignal(
+                            source="operational_health",
+                            severity=sev,
+                            confidence=obs.confidence,
+                            summary=f"Component '{obs.component_id}' is {obs.state.value}: {'; '.join(obs.evidence)}",
+                            payload={
+                                "component_id": obs.component_id,
+                                "category": obs.category.value,
+                                "state": obs.state.value,
+                                "recommended_action": obs.recommended_action,
+                            },
+                        )
+                    )
+        except Exception:
+            pass
+        return signals
+
+
 # ---------------------------------------------------------------------------
 # Proactive Heartbeat Engine
 # ---------------------------------------------------------------------------

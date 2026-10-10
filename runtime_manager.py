@@ -59,6 +59,7 @@ class JevRuntime:
         enable_native_watchers: bool = True,
         max_cpu_percent: float = 80.0,
         min_memory_mb: float = 100.0,
+        memory_store: Optional[Any] = None,
     ) -> None:
         self.appdata_dir = appdata_dir or config.APPDATA_DIR
         self.background_db_path = background_db_path or os.path.join(self.appdata_dir, "background_tasks.db")
@@ -66,6 +67,7 @@ class JevRuntime:
 
         self.event_bus = event_bus or EventBus()
         self.governor = governor or ResourceGovernor()
+        self.memory_store = memory_store
         self.task_executor = task_executor
         self.heartbeat_interval_sec = heartbeat_interval_sec
         self.enable_heartbeat = enable_heartbeat
@@ -153,6 +155,20 @@ class JevRuntime:
         )
         self.deployment_manager = self.extension_manager.deployment_manager
 
+        # 5. Operational Maintenance Coordinator (Phase 26)
+        from maintenance_coordinator import OperationalMaintenanceCoordinator
+        self.maintenance_coordinator = OperationalMaintenanceCoordinator(
+            event_bus=self.event_bus,
+            memory_store=self.memory_store,
+            deployment_manager=self.deployment_manager,
+            recovery_manager=self.task_manager.recovery_manager,
+        )
+
+        from proactive_heartbeat import OperationalHealthSignalProvider
+        self.heartbeat_engine.signal_providers.append(
+            OperationalHealthSignalProvider(health_coordinator=self.maintenance_coordinator.health_coordinator)
+        )
+
     def plan_and_execute_workflow(
         self,
         goal: str,
@@ -214,6 +230,9 @@ class JevRuntime:
 
                 # Step 3.5: Crash recovery and reconciliation of capability deployments (Phase 25)
                 self.deployment_manager.recover_deployments()
+
+                # Step 3.6: Audit operational health of deployed capabilities (Phase 26)
+                self.maintenance_coordinator.audit_all_deployed_capabilities()
 
                 self._running = True
 
@@ -331,6 +350,10 @@ class JevRuntime:
             "tasks_count": tasks_count,
             "heartbeat_history_count": heartbeat_hist,
         }
+
+    def get_operational_health_report(self) -> Dict[str, Any]:
+        """Produce holistic operational health, incident, and maintenance report (Phase 26)."""
+        return self.maintenance_coordinator.get_operational_report()
 
 
 # ---------------------------------------------------------------------------
