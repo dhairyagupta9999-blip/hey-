@@ -129,30 +129,44 @@ class JevRuntime:
                 return self
 
             logger.info("Starting JevRuntime background automation fleet...")
-            self._running = True
+            try:
+                # Step 1: Start BackgroundTaskManager (reconciles tasks, restores watchers, starts scheduler & rule engine)
+                self.task_manager.start()
 
-            # Step 1: Start BackgroundTaskManager (reconciles tasks, restores watchers, starts scheduler & rule engine)
-            self.task_manager.start()
+                # Step 2: Auto-activate watchers for registered projects
+                if self.enable_project_watchers:
+                    self._activate_project_watchers()
 
-            # Step 2: Auto-activate watchers for registered projects
-            if self.enable_project_watchers:
-                self._activate_project_watchers()
+                # Step 3: Start Proactive Heartbeat Engine
+                if self.enable_heartbeat:
+                    self.heartbeat_engine.start()
 
-            # Step 3: Start Proactive Heartbeat Engine
-            if self.enable_heartbeat:
-                self.heartbeat_engine.start()
+                self._running = True
 
-            # Step 4: Emit runtime startup event
-            self.event_bus.emit(
-                event_type="runtime.started",
-                task_id="runtime",
-                agent_name="JevRuntime",
-                data={
-                    "active_watchers": len(self.task_manager._active_watchers),
-                    "heartbeat_enabled": self.enable_heartbeat,
-                    "background_db": self.background_db_path,
-                },
-            )
+                # Step 4: Emit runtime startup event
+                self.event_bus.emit(
+                    event_type="runtime.started",
+                    task_id="runtime",
+                    agent_name="JevRuntime",
+                    data={
+                        "active_watchers": len(self.task_manager._active_watchers),
+                        "heartbeat_enabled": self.enable_heartbeat,
+                        "background_db": self.background_db_path,
+                    },
+                )
+            except Exception as e:
+                self._running = False
+                logger.error("Startup failed in JevRuntime: %s", e)
+                try:
+                    self.task_manager.stop()
+                except Exception:
+                    pass
+                if self.enable_heartbeat:
+                    try:
+                        self.heartbeat_engine.stop()
+                    except Exception:
+                        pass
+                raise
 
         return self
 

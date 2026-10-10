@@ -44,10 +44,13 @@ def _cancel_io_ex(handle: Any, overlapped: Any = None) -> bool:
         return False
     try:
         import ctypes
+        from ctypes import wintypes
         k32 = ctypes.windll.kernel32
-        k32.CancelIoEx.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-        k32.CancelIoEx.restype = ctypes.c_int
+        k32.CancelIoEx.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+        k32.CancelIoEx.restype = wintypes.BOOL
         h_val = int(handle)
+        if h_val <= 0 or h_val == 0xFFFFFFFFFFFFFFFF:
+            return False
         ov_val = ctypes.c_void_p(overlapped) if overlapped else None
         res = k32.CancelIoEx(h_val, ov_val)
         return bool(res)

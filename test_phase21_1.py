@@ -683,3 +683,51 @@ def test_demo_6_shutting_down_jev_releases_resources_and_stops_heartbeat(temp_di
     assert runtime.task_manager._running is False
     if runtime.heartbeat_engine._thread:
         assert not runtime.heartbeat_engine._thread.is_alive()
+
+
+def test_runtime_startup_failure_rolls_back_and_surfaces_error(temp_dir):
+    """Verify that if subsystem startup raises an exception during JevRuntime.start(),
+    the failure is surfaced (raised), runtime.is_running is reset to False, already-started
+    components are rolled back, and state is not poisoned for subsequent retries.
+    """
+    from unittest.mock import patch
+
+    bg_db = os.path.join(temp_dir, "fail_bg.db")
+    proj_db = os.path.join(temp_dir, "fail_proj.db")
+
+    runtime = JevRuntime(
+        appdata_dir=temp_dir,
+        background_db_path=bg_db,
+        project_db_path=proj_db,
+        heartbeat_interval_sec=0.1,
+    )
+
+    with patch.object(runtime.heartbeat_engine, "start", side_effect=RuntimeError("Simulated engine fault")):
+        with pytest.raises(RuntimeError, match="Simulated engine fault"):
+            runtime.start()
+
+    # Crucial assertions: must NOT remain marked as running, and task_manager must be stopped
+    assert runtime.is_running is False
+    assert runtime.task_manager._running is False
+
+    # Now verify that subsequent startup can succeed cleanly without poisoned state
+    runtime.start()
+    try:
+        assert runtime.is_running is True
+        assert runtime.task_manager._running is True
+        assert runtime.heartbeat_engine._running is True
+    finally:
+        runtime.stop()
+        assert runtime.is_running is False
+
+
+def test_cancel_io_ex_handles_invalid_and_sentinel_handles():
+    """Verify that _cancel_io_ex safely rejects null, zero, negative, and invalid handle sentinels."""
+    from watchers import _cancel_io_ex, HAS_WIN32
+    assert _cancel_io_ex(None) is False
+    assert _cancel_io_ex(0) is False
+    assert _cancel_io_ex(-1) is False
+    if HAS_WIN32:
+        import win32file
+        assert _cancel_io_ex(win32file.INVALID_HANDLE_VALUE) is False
+
