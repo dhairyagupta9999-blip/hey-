@@ -169,6 +169,40 @@ class JevRuntime:
             OperationalHealthSignalProvider(health_coordinator=self.maintenance_coordinator.health_coordinator)
         )
 
+        # 6. Persistent Mission System (Phase 27)
+        from mission_store import SqliteMissionStore
+        from mission_interpreter import MissionInterpreter
+        from mission_planner import MissionPlanner
+        from mission_replanner import MissionReplanner
+        from mission_coordinator import MissionCoordinator
+
+        self.mission_store = SqliteMissionStore(
+            os.path.join(self.appdata_dir, "hey_jev_missions.db")
+        )
+        self.mission_interpreter = MissionInterpreter(
+            registry=self.capability_registry,
+            discovery_engine=self.capability_discovery,
+            extension_manager=self.extension_manager,
+        )
+        self.mission_planner = MissionPlanner(
+            registry=self.capability_registry,
+            discovery_engine=self.capability_discovery,
+            workflow_composer=self.workflow_composer,
+            resource_governor=self.governor,
+        )
+        self.mission_replanner = MissionReplanner(
+            registry=self.capability_registry,
+            discovery_engine=self.capability_discovery,
+        )
+        self.mission_coordinator = MissionCoordinator(
+            registry=self.capability_registry,
+            workflow_engine=self.workflow_engine,
+            mission_store=self.mission_store,
+            event_bus=self.event_bus,
+            replanner=self.mission_replanner,
+            resource_governor=self.governor,
+        )
+
     def plan_and_execute_workflow(
         self,
         goal: str,
@@ -194,6 +228,39 @@ class JevRuntime:
             granted_permissions=granted_permissions,
         )
         return plan, report, None
+
+    def create_mission(
+        self,
+        objective: str,
+        mode: Any = None,
+        context: Optional[Dict[str, Any]] = None,
+        caller_permissions: Optional[List[str]] = None,
+    ) -> Tuple[Any, Dict[str, Any]]:
+        """Interpret and plan a persistent goal-driven mission (Phase 27)."""
+        from mission_model import MissionMode
+        eff_mode = mode or MissionMode.COPILOT
+        mission, meta = self.mission_interpreter.interpret_objective(
+            objective=objective,
+            context=context,
+            mode=eff_mode,
+            caller_permissions=caller_permissions,
+        )
+        self.mission_planner.create_plan(mission, context=context)
+        self.mission_store.save_mission(mission)
+        return mission, meta
+
+    def execute_mission(
+        self,
+        mission_id: str,
+        context: Optional[Dict[str, Any]] = None,
+        granted_permissions: Optional[List[TaskPermission]] = None,
+    ) -> Any:
+        """Execute a planned persistent mission (Phase 27)."""
+        return self.mission_coordinator.execute_mission(
+            mission_id=mission_id,
+            context=context,
+            granted_permissions=granted_permissions,
+        )
 
     @property
     def is_running(self) -> bool:
@@ -233,6 +300,14 @@ class JevRuntime:
 
                 # Step 3.6: Audit operational health of deployed capabilities (Phase 26)
                 self.maintenance_coordinator.audit_all_deployed_capabilities()
+
+                # Step 3.7: Crash recovery & reconciliation of interrupted missions (Phase 27)
+                try:
+                    interrupted = self.mission_store.get_interrupted_missions()
+                    for m in interrupted:
+                        self.mission_store.reconcile_interrupted_mission(m.mission_id)
+                except Exception as e:
+                    logger.warning("Error reconciling interrupted missions on startup: %s", e)
 
                 self._running = True
 
@@ -327,7 +402,13 @@ class JevRuntime:
             # Step 2: Stop BackgroundTaskManager and all active watchers
             self.task_manager.stop()
 
-            # Step 3: Emit runtime stopped event
+            # Step 3: Close mission store SQLite connection (Phase 27)
+            try:
+                self.mission_store.close()
+            except Exception:
+                pass
+
+            # Step 4: Emit runtime stopped event
             self.event_bus.emit(
                 event_type="runtime.stopped",
                 task_id="runtime",
@@ -342,6 +423,7 @@ class JevRuntime:
             active_w = len(self.task_manager._active_watchers)
             tasks_count = len(self.task_manager.list_tasks())
             heartbeat_hist = len(self.heartbeat_engine.get_history())
+            missions_count = len(self.mission_store.list_missions())
 
         return {
             "runtime_running": running,
@@ -349,6 +431,7 @@ class JevRuntime:
             "active_watchers_count": active_w,
             "tasks_count": tasks_count,
             "heartbeat_history_count": heartbeat_hist,
+            "missions_count": missions_count,
         }
 
     def get_operational_health_report(self) -> Dict[str, Any]:
