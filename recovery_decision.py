@@ -59,6 +59,34 @@ STRICTLY_GATED_ACTIONS: frozenset[OperationalRecoveryAction] = frozenset({
     OperationalRecoveryAction.ESCALATE_TO_USER,
 })
 
+# Privileged or security-critical system targets that can NEVER be autonomously restarted or modified
+PRIVILEGED_COMPONENT_PREFIXES: Tuple[str, ...] = (
+    "safety_",
+    "security_",
+    "permission_",
+    "auth_",
+    "system_core",
+    "kernel",
+)
+
+PRIVILEGED_COMPONENTS: frozenset[str] = frozenset({
+    "safety_engine",
+    "security_engine",
+    "permission_manager",
+    "auth_provider",
+    "kernel",
+    "system_core",
+    "root",
+    "security",
+    "auth",
+})
+
+
+def is_privileged_target(component_id: str) -> bool:
+    """Determine whether a component is a privileged security/system core component."""
+    cid = component_id.strip().lower()
+    return cid in PRIVILEGED_COMPONENTS or any(cid.startswith(p) for p in PRIVILEGED_COMPONENT_PREFIXES)
+
 
 @dataclass
 class RecoveryPlanV26:
@@ -100,15 +128,18 @@ class OperationalRecoveryEngine:
         self,
         event_bus: Optional[EventBus] = None,
         max_attempts_per_fingerprint: int = 3,
+        max_component_cycles: int = 4,
         base_backoff_seconds: float = 1.0,
         max_backoff_seconds: float = 30.0,
     ) -> None:
         self.event_bus = event_bus or EventBus()
         self.max_attempts = max_attempts_per_fingerprint
+        self.max_component_cycles = max_component_cycles
         self.base_backoff = base_backoff_seconds
         self.max_backoff = max_backoff_seconds
         self._lock = threading.RLock()
         self._action_history: Dict[str, List[RecoveryPlanV26]] = {}  # fingerprint -> prior plans
+        self._component_history: Dict[str, List[RecoveryPlanV26]] = {}  # component_id -> prior plans
         self._action_executors: Dict[OperationalRecoveryAction, Callable[..., Tuple[bool, Optional[str]]]] = {}
 
     def register_action_executor(
@@ -161,7 +192,7 @@ class OperationalRecoveryEngine:
             prior_plans = self._action_history.get(fingerprint, [])
             current_attempt = len(prior_plans) + 1
 
-            # Cycle Breaker: If same action was attempted repeatedly, escalate to prevent infinite loop
+            # Cycle Breaker 1: Same fingerprint repeated attempts threshold
             if current_attempt > self.max_attempts:
                 plan = RecoveryPlanV26(
                     plan_id=f"plan_esc_{fingerprint}_{current_attempt}",
@@ -176,14 +207,58 @@ class OperationalRecoveryEngine:
                     autonomous_permitted=False,
                     attempt_number=current_attempt,
                     steps=[{"step": "notify_operator", "fingerprint": fingerprint}],
-                    metadata={"fingerprint": fingerprint, "original_action": intended_action.value},
+                    metadata={
+                        "fingerprint": fingerprint,
+                        "original_action": intended_action.value,
+                        "failure_category": classification.value,
+                    },
                 )
                 prior_plans.append(plan)
                 self._action_history[fingerprint] = prior_plans
+                comp_plans = self._component_history.setdefault(comp_id, [])
+                comp_plans.append(plan)
+                return plan
+
+            # Cycle Breaker 2: Multi-failure alternating cycle protection for the same component
+            now = time.time()
+            comp_prior_plans = self._component_history.get(comp_id, [])
+            recent_comp_plans = [p for p in comp_prior_plans if (now - p.created_at) <= 600.0]
+            distinct_categories = {
+                p.metadata.get("failure_category")
+                for p in recent_comp_plans
+                if p.metadata.get("failure_category")
+            }
+            distinct_categories.add(classification.value)
+
+            if len(recent_comp_plans) >= self.max_component_cycles or (
+                len(distinct_categories) >= 2 and len(recent_comp_plans) >= 3
+            ):
+                plan = RecoveryPlanV26(
+                    plan_id=f"plan_cycle_{comp_id}_{len(recent_comp_plans) + 1}",
+                    component_id=comp_id,
+                    action=OperationalRecoveryAction.ESCALATE_TO_USER,
+                    reason=(
+                        f"Multi-failure alternating cycle detected for component '{comp_id}' "
+                        f"({len(recent_comp_plans)} recovery attempts across {len(distinct_categories)} failure categories). "
+                        "Escalating to human operator to prevent oscillating recovery loop."
+                    ),
+                    risk_level="HIGH",
+                    requires_approval=True,
+                    autonomous_permitted=False,
+                    attempt_number=len(recent_comp_plans) + 1,
+                    steps=[{"step": "notify_operator", "component_id": comp_id}],
+                    metadata={
+                        "component_cycle_breaker": True,
+                        "failure_category": classification.value,
+                        "distinct_categories": list(distinct_categories),
+                    },
+                )
+                comp_prior_plans.append(plan)
+                self._component_history[comp_id] = comp_prior_plans
                 return plan
 
             # 3. Deterministic Policy Enforcement:
-            # Policy Rule: High-risk, unverified, security, or permission actions CANNOT be autonomous.
+            # Rule 3A: Security, authentication, or permission boundary blocks strictly require human escalation
             if classification in (
                 FailureCategory.PERMISSION_DENIED,
                 FailureCategory.POLICY_BLOCKED,
@@ -195,6 +270,14 @@ class OperationalRecoveryEngine:
                 autonomous_permitted = False
                 risk_level = "CRITICAL"
                 reason = f"Security or permission boundary block: {classification.value}."
+
+            # Rule 3B: Privileged / security critical components CANNOT be modified or restarted autonomously
+            elif is_privileged_target(comp_id):
+                intended_action = OperationalRecoveryAction.REQUEST_APPROVAL
+                requires_approval = True
+                autonomous_permitted = False
+                risk_level = "CRITICAL"
+                reason = f"Target '{comp_id}' is a privileged system component; autonomous modification/restart disallowed without operator approval."
 
             elif intended_action == OperationalRecoveryAction.PROPOSE_REPAIR:
                 # Code/config repair must go through proposal lifecycle, not direct unattended execution
@@ -208,6 +291,26 @@ class OperationalRecoveryEngine:
                 autonomous_permitted = False
                 risk_level = diagnostic.risk_level
                 reason = "Action is classified in STRICTLY_GATED_ACTIONS; human authorization required."
+
+            # Rule 3C: Target-specific allowlist check for ROLLBACK_DEPLOYMENT
+            elif intended_action == OperationalRecoveryAction.ROLLBACK_DEPLOYMENT and diagnostic.category != SubsystemCategory.DEPLOYED_CAPABILITY:
+                intended_action = OperationalRecoveryAction.REQUEST_APPROVAL
+                requires_approval = True
+                autonomous_permitted = False
+                risk_level = "HIGH"
+                reason = f"Component '{comp_id}' is category {diagnostic.category.value}, not DEPLOYED_CAPABILITY; rollback requires human authorization."
+
+            # Rule 3D: Target-specific allowlist check for RESTART_COMPONENT
+            elif intended_action == OperationalRecoveryAction.RESTART_COMPONENT and diagnostic.category not in (
+                SubsystemCategory.WATCHER,
+                SubsystemCategory.BACKGROUND_TASK,
+                SubsystemCategory.RUNTIME_COMPONENT,
+            ):
+                intended_action = OperationalRecoveryAction.REQUEST_APPROVAL
+                requires_approval = True
+                autonomous_permitted = False
+                risk_level = "HIGH"
+                reason = f"Component '{comp_id}' of category {diagnostic.category.value} is not an eligible autonomous restart target."
 
             elif intended_action in AUTONOMOUS_MAINTENANCE_ALLOWLIST:
                 # Validate low-risk invariants
@@ -256,11 +359,17 @@ class OperationalRecoveryEngine:
                 attempt_number=current_attempt,
                 backoff_delay_seconds=backoff,
                 steps=steps,
-                metadata={"fingerprint": fingerprint, "verified_cause": verified_cause},
+                metadata={
+                    "fingerprint": fingerprint,
+                    "verified_cause": verified_cause,
+                    "failure_category": classification.value,
+                },
             )
 
             prior_plans.append(plan)
             self._action_history[fingerprint] = prior_plans
+            comp_prior_plans = self._component_history.setdefault(comp_id, [])
+            comp_prior_plans.append(plan)
 
             self.event_bus.emit(
                 "recovery.plan_formulated",

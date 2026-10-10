@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from capability_deployment import CapabilityDeploymentManager
 from deployment_manifest import DeploymentStatus
@@ -73,9 +73,26 @@ class OperationalMaintenanceCoordinator:
         self._lock = threading.RLock()
         self._custom_restart_hooks: Dict[str, Callable[[], Tuple[bool, Optional[str]]]] = {}
         self._custom_reconcile_hooks: Dict[str, Callable[[], Tuple[bool, Optional[str]]]] = {}
+        self._in_flight_recoveries: Set[str] = set()
 
         # Register standard action executors
         self._register_default_executors()
+
+    def _is_restartable_target(self, component_id: str) -> bool:
+        """Verify whether a target is a valid restartable component."""
+        cid = component_id.lower()
+        if component_id in self._custom_restart_hooks:
+            return True
+        if self.recovery_manager and (cid.startswith("w_") or "watcher" in cid):
+            return True
+        obs = self.health_coordinator.get_health(component_id)
+        if obs and obs.category in (
+            SubsystemCategory.WATCHER,
+            SubsystemCategory.BACKGROUND_TASK,
+            SubsystemCategory.RUNTIME_COMPONENT,
+        ):
+            return True
+        return False
 
     def _register_default_executors(self) -> None:
         """Wire standard recovery executors into OperationalRecoveryEngine."""
@@ -114,10 +131,12 @@ class OperationalMaintenanceCoordinator:
             hook = self._custom_restart_hooks.get(component_id)
             if hook:
                 return hook()
-            if self.recovery_manager:
+            if self.recovery_manager and (component_id.startswith("w_") or "watcher" in component_id.lower()):
                 # If watcher, restart via recovery manager
                 audit = self.recovery_manager.check_watcher_health(force_restart=True)
                 return True, f"Watcher health check & restart invoked: {audit}"
+            if not self._is_restartable_target(component_id):
+                return False, f"Component '{component_id}' is not a recognized restartable target and has no registered restart hook."
             return True, f"Stateless component '{component_id}' restarted."
         self.recovery_engine.register_action_executor(OperationalRecoveryAction.RESTART_COMPONENT, _restart_exec)
 
@@ -137,15 +156,27 @@ class OperationalMaintenanceCoordinator:
             dep_id = manifest.deployment_id
             ok, msg = self.deployment_manager.rollback_deployment(dep_id)
             if ok:
-                # Re-check health after rollback
-                self.health_coordinator.record_observation(
-                    component_id=component_id,
-                    category=SubsystemCategory.DEPLOYED_CAPABILITY,
-                    state=HealthState.HEALTHY,
-                    evidence=[f"Rolled back deployment '{dep_id}' successfully."],
-                    recommended_action="NO_ACTION",
-                )
-                return True, f"Rollback succeeded for {dep_id}: {msg}"
+                # Post-condition verification: check that manifest status is actually ROLLED_BACK
+                m = self.deployment_manager.get_manifest(dep_id)
+                if m and m.status == DeploymentStatus.ROLLED_BACK:
+                    # Re-check health after rollback
+                    self.health_coordinator.record_observation(
+                        component_id=component_id,
+                        category=SubsystemCategory.DEPLOYED_CAPABILITY,
+                        state=HealthState.HEALTHY,
+                        evidence=[f"Rolled back deployment '{dep_id}' successfully."],
+                        recommended_action="NO_ACTION",
+                    )
+                    return True, f"Rollback succeeded for {dep_id}: {msg}"
+                else:
+                    self.health_coordinator.record_observation(
+                        component_id=component_id,
+                        category=SubsystemCategory.DEPLOYED_CAPABILITY,
+                        state=HealthState.NEEDS_ATTENTION,
+                        evidence=[f"Rollback status verification failed for '{dep_id}': status is {getattr(m, 'status', 'UNKNOWN')}"],
+                        recommended_action="ESCALATE_TO_USER",
+                    )
+                    return False, f"Rollback status verification failed for {dep_id}."
             else:
                 self.health_coordinator.record_observation(
                     component_id=component_id,
@@ -198,6 +229,30 @@ class OperationalMaintenanceCoordinator:
     ) -> Tuple[DiagnosticReport, RecoveryPlanV26, Optional[Tuple[bool, Optional[str]]]]:
         """Process a failure: record degradation, diagnose root cause, formulate plan, and execute if authorized."""
         with self._lock:
+            # 0. In-flight recovery guard: prevent concurrent duplicate recoveries for the same component
+            if component_id in self._in_flight_recoveries:
+                clean_err = sanitize_content(str(error_or_exception or ""))
+                diag_fallback = DiagnosticReport(
+                    diagnosis_id="diag_inflight",
+                    component_id=component_id,
+                    category=category,
+                    observed_symptoms=[f"Observed error during active recovery: {clean_err}"],
+                    hypotheses=["Concurrent failure event while recovery is in-flight"],
+                    recommended_recovery_action="NO_ACTION",
+                    risk_level="LOW",
+                )
+                dup_plan = RecoveryPlanV26(
+                    plan_id=f"plan_inflight_{component_id}",
+                    component_id=component_id,
+                    action=OperationalRecoveryAction.NO_ACTION,
+                    reason=f"Recovery already in-flight for component '{component_id}'; concurrent execution suppressed.",
+                    risk_level="LOW",
+                    requires_approval=False,
+                    autonomous_permitted=True,
+                    attempt_number=0,
+                )
+                return diag_fallback, dup_plan, (False, f"Recovery already in-flight for component '{component_id}'.")
+
             # 1. Update health observation
             clean_err = sanitize_content(str(error_or_exception or ""))
             obs = self.health_coordinator.record_observation(
@@ -233,6 +288,7 @@ class OperationalMaintenanceCoordinator:
                 recovery_attempts=[plan.to_dict()],
                 final_state=obs.state,
                 verified_outcome="Plan formulated.",
+                deduplicate_open=True,
             )
 
             # 5. Handle repair proposals if indicated
@@ -248,49 +304,18 @@ class OperationalMaintenanceCoordinator:
                     final_state=HealthState.NEEDS_ATTENTION,
                 )
 
-            # 6. Autonomous execution if allowed and requested
-            exec_result: Optional[Tuple[bool, Optional[str]]] = None
+            # 6. Autonomous execution readiness check
+            can_exec = False
             if auto_recover:
-                # If plan requires approval and not approved, execution will be blocked by policy
                 can_exec = plan.autonomous_permitted or user_approved
                 if can_exec:
-                    # Move component to RECOVERING state
+                    self._in_flight_recoveries.add(component_id)
                     self.health_coordinator.record_observation(
                         component_id=component_id,
                         category=category,
                         state=HealthState.RECOVERING,
                         evidence=[f"Executing recovery action '{plan.action.value}'"],
                     )
-
-                    ok, msg = self.recovery_engine.execute_plan(plan, user_approved=user_approved)
-                    exec_result = (ok, msg)
-
-                    if ok:
-                        self.health_coordinator.record_observation(
-                            component_id=component_id,
-                            category=category,
-                            state=HealthState.HEALTHY,
-                            evidence=[f"Recovery action '{plan.action.value}' succeeded: {msg}"],
-                            recommended_action="NO_ACTION",
-                        )
-                        self.incident_store.resolve_incident(
-                            incident_id=incident.incident_id,
-                            verified_outcome=f"Resolved via {plan.action.value}: {msg}",
-                            final_state=HealthState.HEALTHY,
-                        )
-                    else:
-                        self.health_coordinator.record_observation(
-                            component_id=component_id,
-                            category=category,
-                            state=HealthState.NEEDS_ATTENTION,
-                            evidence=[f"Recovery action '{plan.action.value}' failed: {msg}"],
-                            recommended_action="ESCALATE_TO_USER",
-                        )
-                        self.incident_store.resolve_incident(
-                            incident_id=incident.incident_id,
-                            verified_outcome=f"Failed recovery via {plan.action.value}: {msg}",
-                            final_state=HealthState.NEEDS_ATTENTION,
-                        )
                 else:
                     self.health_coordinator.record_observation(
                         component_id=component_id,
@@ -300,7 +325,57 @@ class OperationalMaintenanceCoordinator:
                         recommended_action="REQUEST_APPROVAL",
                     )
 
-            return diagnostic, plan, exec_result
+        # 7. Execute recovery OUTSIDE of self._lock so concurrent calls are guarded by self._in_flight_recoveries
+        exec_result: Optional[Tuple[bool, Optional[str]]] = None
+        if can_exec:
+            try:
+                ok, msg = self.recovery_engine.execute_plan(plan, user_approved=user_approved)
+                exec_result = (ok, msg)
+            finally:
+                with self._lock:
+                    self._in_flight_recoveries.discard(component_id)
+                    if exec_result is not None:
+                        ok, msg = exec_result
+                        if ok:
+                            self.health_coordinator.record_observation(
+                                component_id=component_id,
+                                category=category,
+                                state=HealthState.HEALTHY,
+                                evidence=[f"Recovery action '{plan.action.value}' succeeded: {msg}"],
+                                recommended_action="NO_ACTION",
+                            )
+                            self.incident_store.resolve_incident(
+                                incident_id=incident.incident_id,
+                                verified_outcome=f"Resolved via {plan.action.value}: {msg}",
+                                final_state=HealthState.HEALTHY,
+                            )
+                        else:
+                            self.health_coordinator.record_observation(
+                                component_id=component_id,
+                                category=category,
+                                state=HealthState.NEEDS_ATTENTION,
+                                evidence=[f"Recovery action '{plan.action.value}' failed: {msg}"],
+                                recommended_action="ESCALATE_TO_USER",
+                            )
+                            # When recovery fails, keep incident marked as UNRESOLVED
+                            rec = self.incident_store.get_incident(incident.incident_id)
+                            if rec:
+                                rec.resolved = False
+                                rec.final_state = HealthState.NEEDS_ATTENTION
+                                rec.verified_outcome = f"Failed recovery via {plan.action.value}: {msg}"
+                                if self.memory_store is not None:
+                                    try:
+                                        mem_record = MemoryRecord(
+                                            type=MemoryType.ENVIRONMENT_FACT,
+                                            content=f"Unresolved Operational Incident [{incident.incident_id}] for {component_id}: {rec.verified_outcome}",
+                                            source=MemorySource.SYSTEM,
+                                            metadata=rec.to_dict(),
+                                        )
+                                        self.memory_store.add(mem_record)
+                                    except Exception:
+                                        pass
+
+        return diagnostic, plan, exec_result
 
     def audit_all_deployed_capabilities(self) -> Dict[str, HealthObservation]:
         """Audit health of all deployed capabilities in the CapabilityDeploymentManager."""

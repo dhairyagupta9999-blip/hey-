@@ -130,7 +130,8 @@ class FailureDiagnosisEngine:
                 else:
                     hypotheses.append(f"High host resource pressure may contribute to degraded performance (CPU={cpu}%, RAM={mem}%)")
             else:
-                contradicting_evidence.append("Host CPU and RAM are within normal operating headroom.")
+                if classification in (FailureCategory.TIMEOUT, FailureCategory.RESOURCE_EXHAUSTED):
+                    contradicting_evidence.append("Host CPU and RAM are within normal operating headroom; hardware resource exhaustion refuted.")
         except Exception:
             pass
 
@@ -155,12 +156,28 @@ class FailureDiagnosisEngine:
         if recent_deployment and (now - deployment_time <= 600 or deployment_time == 0):
             # Deployment occurred within last 10 minutes or explicitly tagged as recent
             dep_id = getattr(recent_deployment, "deployment_id", str(recent_deployment))
-            supporting_evidence.append(f"Recent capability deployment identified: '{dep_id}'")
-            verified_causes.append(f"Regression correlated with recent deployment '{dep_id}'")
-            recommended_action = "ROLLBACK_DEPLOYMENT"
-            risk_level = "MEDIUM"
-            requires_approval = False
-            confidence = 0.95
+
+            # Distinguish direct causality from mere temporal correlation (post hoc ergo propter hoc)
+            is_direct_cause = (
+                category == SubsystemCategory.DEPLOYED_CAPABILITY
+                or component_id == dep_id
+                or dep_id in raw_error
+                or "schema" in raw_error.lower()
+                or (health_observation and health_observation.consecutive_failures >= 2)
+            )
+
+            if is_direct_cause:
+                supporting_evidence.append(f"Recent capability deployment identified with direct causal correlation: '{dep_id}'")
+                verified_causes.append(f"Regression correlated with recent deployment '{dep_id}'")
+                recommended_action = "ROLLBACK_DEPLOYMENT"
+                risk_level = "MEDIUM"
+                requires_approval = False
+                confidence = 0.95
+            else:
+                # Temporal proximity alone without causal link is strictly a hypothesis
+                supporting_evidence.append(f"Recent deployment '{dep_id}' occurred in time window but lacks direct causal error link.")
+                hypotheses.append(f"Recent capability deployment '{dep_id}' may be correlated with failure onset (temporal hypothesis)")
+                confidence = min(confidence, 0.65)
 
         # 5. Check Network & Connection Failures
         if classification == FailureCategory.NETWORK_FAILURE:
@@ -173,7 +190,7 @@ class FailureDiagnosisEngine:
                     contradicting_evidence.append(f"Socket connection to {host}:{port} succeeded. Failure may be application-level or transient.")
                     hypotheses.append("Transient network or endpoint socket interruption")
                     recommended_action = "RETRY"
-                    confidence = 0.7
+                    confidence = min(confidence, 0.7)
                 except Exception as ex:
                     verified_causes.append(f"Target endpoint unreachable at {host}:{port} ({str(ex)})")
                     supporting_evidence.append(f"Direct socket probe to {host}:{port} failed")
@@ -182,7 +199,7 @@ class FailureDiagnosisEngine:
             else:
                 hypotheses.append("Transient network transport disruption or remote reset")
                 recommended_action = "RETRY"
-                confidence = 0.75
+                confidence = min(confidence, 0.75)
 
         # 6. Check Rate Limit & Timeouts
         if classification == FailureCategory.RATE_LIMIT:
@@ -230,6 +247,10 @@ class FailureDiagnosisEngine:
                 risk_level = "HIGH"
                 requires_approval = True
                 confidence = 0.9
+
+        # 10. Discount confidence when contradicting evidence is present
+        if contradicting_evidence:
+            confidence = max(0.2, confidence - (0.25 * len(contradicting_evidence)))
 
         report = DiagnosticReport(
             diagnosis_id=f"diag_{uuid.uuid4().hex[:8]}",
