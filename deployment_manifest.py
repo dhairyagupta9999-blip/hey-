@@ -64,35 +64,41 @@ VALID_DEPLOYMENT_TRANSITIONS: Dict[DeploymentStatus, Set[DeploymentStatus]] = {
         DeploymentStatus.STAGING,
         DeploymentStatus.BLOCKED_ISOLATION,
         DeploymentStatus.VALIDATION_FAILED,
+        DeploymentStatus.NEEDS_REVIEW,
         DeploymentStatus.INACTIVE,
     },
     DeploymentStatus.STAGING: {
         DeploymentStatus.STAGED,
         DeploymentStatus.VALIDATION_FAILED,
         DeploymentStatus.BLOCKED_ISOLATION,
+        DeploymentStatus.NEEDS_REVIEW,
         DeploymentStatus.INACTIVE,
     },
     DeploymentStatus.STAGED: {
         DeploymentStatus.READY_FOR_APPROVAL,
         DeploymentStatus.VALIDATION_FAILED,
         DeploymentStatus.BLOCKED_ISOLATION,
+        DeploymentStatus.NEEDS_REVIEW,
         DeploymentStatus.INACTIVE,
     },
     DeploymentStatus.READY_FOR_APPROVAL: {
         DeploymentStatus.APPROVED,
         DeploymentStatus.BLOCKED_PERMISSION,
+        DeploymentStatus.NEEDS_REVIEW,
         DeploymentStatus.INACTIVE,
     },
     DeploymentStatus.APPROVED: {
         DeploymentStatus.ACTIVATING,
         DeploymentStatus.BLOCKED_ISOLATION,
         DeploymentStatus.READY_FOR_APPROVAL,  # Invalidation returns to approval state
+        DeploymentStatus.NEEDS_REVIEW,
         DeploymentStatus.INACTIVE,
     },
     DeploymentStatus.ACTIVATING: {
         DeploymentStatus.ACTIVE,
         DeploymentStatus.ACTIVATION_FAILED,
         DeploymentStatus.ROLLBACK_PENDING,
+        DeploymentStatus.NEEDS_REVIEW,
     },
     DeploymentStatus.ACTIVE: {
         DeploymentStatus.DEACTIVATING,
@@ -106,18 +112,22 @@ VALID_DEPLOYMENT_TRANSITIONS: Dict[DeploymentStatus, Set[DeploymentStatus]] = {
     },
     DeploymentStatus.INACTIVE: {
         DeploymentStatus.CANDIDATE,  # Re-deployment path
+        DeploymentStatus.NEEDS_REVIEW,
     },
     # Recovery and Failure Transitions
     DeploymentStatus.VALIDATION_FAILED: {
         DeploymentStatus.CANDIDATE,
+        DeploymentStatus.NEEDS_REVIEW,
         DeploymentStatus.INACTIVE,
     },
     DeploymentStatus.BLOCKED_ISOLATION: {
         DeploymentStatus.CANDIDATE,
+        DeploymentStatus.NEEDS_REVIEW,
         DeploymentStatus.INACTIVE,
     },
     DeploymentStatus.BLOCKED_PERMISSION: {
         DeploymentStatus.READY_FOR_APPROVAL,
+        DeploymentStatus.NEEDS_REVIEW,
         DeploymentStatus.INACTIVE,
     },
     DeploymentStatus.ACTIVATION_FAILED: {
@@ -135,6 +145,7 @@ VALID_DEPLOYMENT_TRANSITIONS: Dict[DeploymentStatus, Set[DeploymentStatus]] = {
     },
     DeploymentStatus.ROLLED_BACK: {
         DeploymentStatus.CANDIDATE,
+        DeploymentStatus.NEEDS_REVIEW,
         DeploymentStatus.INACTIVE,
     },
     DeploymentStatus.NEEDS_REVIEW: {
