@@ -83,9 +83,22 @@ class ExtensionWorkspace:
         if ".." in parts:
             raise PermissionError(f"Directory traversal prohibited: '{relative_path}'.")
 
-        # Disallow drive letters or absolute paths
-        if os.path.isabs(relative_path) or (len(relative_path) > 1 and relative_path[1] == ":"):
-            raise PermissionError(f"Absolute paths outside workspace prohibited: '{relative_path}'.")
+        # Disallow drive letters, colons, alternate data streams, or absolute paths
+        if os.path.isabs(relative_path) or ":" in relative_path:
+            raise PermissionError(
+                f"Absolute paths, drive specifiers, and alternate data streams prohibited: '{relative_path}'."
+            )
+
+        # Disallow reserved Windows DOS device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+        reserved_dos = {
+            "CON", "PRN", "AUX", "NUL",
+            *(f"COM{i}" for i in range(1, 10)),
+            *(f"LPT{i}" for i in range(1, 10)),
+        }
+        for part in parts:
+            stem = part.split(".")[0].upper()
+            if stem in reserved_dos or part.upper() in reserved_dos:
+                raise PermissionError(f"Reserved Windows device name prohibited: '{relative_path}'.")
 
         # Resolve canonical target
         target = os.path.realpath(os.path.join(self._root_path, relative_path))
@@ -143,7 +156,13 @@ class ExtensionWorkspace:
                 raise PermissionError(f"Target '{target_path}' collides with production repository files.")
 
             # 5. Create directories safely inside workspace
-            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            dir_to_make = os.path.dirname(target_path)
+            if dir_to_make:
+                os.makedirs(dir_to_make, exist_ok=True)
+                dir_real = os.path.realpath(dir_to_make)
+                root_prefix = self._root_path if self._root_path.endswith(os.sep) else self._root_path + os.sep
+                if not dir_real.startswith(root_prefix.rstrip(os.sep)):
+                    raise PermissionError(f"Directory resolved outside workspace boundary: '{dir_real}'.")
 
             # 6. Write content
             mode = "wb" if isinstance(content, bytes) else "w"

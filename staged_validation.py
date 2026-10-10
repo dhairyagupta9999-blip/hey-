@@ -86,6 +86,7 @@ class ReviewPackage:
     failed_stages: List[str]
     blocked_stages: List[str]
     not_run_stages: List[str]
+    unverified_stages: List[str]
     security_concerns: List[str]
     rollback_instructions: str
     created_at: float = field(default_factory=time.time)
@@ -107,6 +108,7 @@ class ReviewPackage:
             "failed_stages": list(self.failed_stages),
             "blocked_stages": list(self.blocked_stages),
             "not_run_stages": list(self.not_run_stages),
+            "unverified_stages": list(self.unverified_stages),
             "security_concerns": list(self.security_concerns),
             "rollback_instructions": self.rollback_instructions,
             "created_at": self.created_at,
@@ -213,7 +215,12 @@ class StagedValidationPipeline:
             s5 = StageResult(5, "static_safety_inspection", StageOutcome.FAIL, f"Static scan violations: {ast_errors}", (time.perf_counter() - t0) * 1000)
             security_concerns.extend(ast_errors)
         else:
-            s5 = StageResult(5, "static_safety_inspection", StageOutcome.PASS, "AST scan completed; no forbidden patterns detected.", (time.perf_counter() - t0) * 1000)
+            s5 = StageResult(
+                5, "static_safety_inspection", StageOutcome.PASS,
+                "AST scan completed; no direct forbidden patterns detected (heuristic check; not proof of runtime safety).",
+                (time.perf_counter() - t0) * 1000,
+                evidence={"heuristic": True, "os_enforced": False}
+            )
         stages.append(s5)
 
         # -------------------------------------------------------------
@@ -223,9 +230,16 @@ class StagedValidationPipeline:
         # If static check failed, unit tests cannot be run safely
         if s5.outcome == StageOutcome.FAIL:
             s6 = StageResult(6, "synthetic_unit_tests", StageOutcome.BLOCKED, "Blocked because static safety inspection failed.", (time.perf_counter() - t0) * 1000)
+        elif not has_process_isolation and getattr(generated_impl, "is_custom_code", False):
+            s6 = StageResult(
+                6, "synthetic_unit_tests", StageOutcome.UNVERIFIED,
+                "Unit tests unverified for custom code: OS process isolation boundary is unavailable.",
+                (time.perf_counter() - t0) * 1000
+            )
+            security_concerns.append("Custom code unit tests unverified due to lack of OS process isolation.")
         else:
             # Unit tests pass synthetic check
-            s6 = StageResult(6, "synthetic_unit_tests", StageOutcome.PASS, "Synthetic unit tests passed (normal & empty inputs verified).", (time.perf_counter() - t0) * 1000)
+            s6 = StageResult(6, "synthetic_unit_tests", StageOutcome.PASS, "Synthetic unit tests passed (normal & empty inputs verified via contract template).", (time.perf_counter() - t0) * 1000)
         stages.append(s6)
 
         # -------------------------------------------------------------
@@ -288,11 +302,12 @@ class StagedValidationPipeline:
         failed_stages = [s.stage_name for s in stages if s.outcome == StageOutcome.FAIL]
         blocked_stages = [s.stage_name for s in stages if s.outcome == StageOutcome.BLOCKED]
         not_run_stages = [s.stage_name for s in stages if s.outcome == StageOutcome.NOT_RUN]
+        unverified_stages = [s.stage_name for s in stages if s.outcome == StageOutcome.UNVERIFIED]
 
-        # Critical gates: stages 1, 2, 3, 4, 5, 6, 8, 9, 10 must PASS.
+        # Critical gates: stages 1, 2, 3, 4, 5, 8, 9, 10 must PASS.
         # Stage 7 (integration tests) may be BLOCKED if process isolation is unavailable on this platform,
-        # but the limitation must be openly documented in security concerns.
-        has_critical_failure = len(failed_stages) > 0 or s5.outcome != StageOutcome.PASS or s6.outcome != StageOutcome.PASS
+        # and Stage 6 may be UNVERIFIED for custom code, but these must be openly documented.
+        has_critical_failure = len(failed_stages) > 0 or s5.outcome != StageOutcome.PASS or s6.outcome == StageOutcome.FAIL or s6.outcome == StageOutcome.BLOCKED
         is_ready = not has_critical_failure
 
         if is_ready:
@@ -304,7 +319,7 @@ class StagedValidationPipeline:
         summary_text = (
             f"Extension '{plan.candidate_id}' built and validated. "
             f"Status: {'READY FOR REVIEW' if is_ready else 'VALIDATION FAILED'}. "
-            f"Passed: {len(passed_stages)}, Failed: {len(failed_stages)}, Blocked: {len(blocked_stages)}."
+            f"Passed: {len(passed_stages)}, Failed: {len(failed_stages)}, Blocked: {len(blocked_stages)}, Unverified: {len(unverified_stages)}."
         )
 
         return ReviewPackage(
@@ -323,6 +338,7 @@ class StagedValidationPipeline:
             failed_stages=failed_stages,
             blocked_stages=blocked_stages,
             not_run_stages=not_run_stages,
+            unverified_stages=unverified_stages,
             security_concerns=security_concerns,
             rollback_instructions=plan.rollback_strategy,
         )
@@ -340,7 +356,7 @@ class StagedValidationPipeline:
                 func = node.func
                 if isinstance(func, ast.Name) and func.id in ("eval", "exec", "__import__", "compile"):
                     errors.append(f"Forbidden call '{func.id}'.")
-                elif isinstance(func, ast.Attribute) and func.attr in ("system", "popen", "spawn"):
+                elif isinstance(func, ast.Attribute) and func.attr in ("system", "popen", "spawn", "execl", "execv"):
                     errors.append(f"Forbidden OS call '{func.attr}'.")
         return errors
 

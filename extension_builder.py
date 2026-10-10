@@ -37,6 +37,7 @@ class GeneratedImplementation:
     contract: Dict[str, Any]
     dependencies: List[str]
     required_permissions: List[TaskPermission]
+    is_custom_code: bool = False
     created_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -50,6 +51,7 @@ class GeneratedImplementation:
             "contract": dict(self.contract),
             "dependencies": list(self.dependencies),
             "required_permissions": [p.value for p in self.required_permissions],
+            "is_custom_code": self.is_custom_code,
             "created_at": self.created_at,
         }
 
@@ -143,6 +145,7 @@ class ExtensionBuilder:
             },
             dependencies=list(plan.dependencies),
             required_permissions=list(plan.required_permissions),
+            is_custom_code=bool(custom_code),
         )
 
         return True, gen_impl, []

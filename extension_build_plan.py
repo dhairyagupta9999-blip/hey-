@@ -181,14 +181,24 @@ class BuildPlanValidator:
         if not plan.permitted_files:
             errors.append("Build plan specifies no permitted files.")
 
+        reserved_dos = {
+            "CON", "PRN", "AUX", "NUL",
+            *(f"COM{i}" for i in range(1, 10)),
+            *(f"LPT{i}" for i in range(1, 10)),
+        }
         for fspec in plan.permitted_files:
             rel = fspec.relative_path
             if not rel or rel == ".":
                 errors.append(f"Invalid empty or root relative path: '{rel}'.")
-            if ".." in rel.split("/") or ".." in rel.split("\\"):
+            parts = rel.replace("\\", "/").split("/")
+            if ".." in parts:
                 errors.append(f"Path traversal detected in permitted file: '{rel}'.")
-            if os.path.isabs(rel) or (len(rel) > 1 and rel[1] == ":"):
-                errors.append(f"Absolute path not permitted in workspace file spec: '{rel}'.")
+            if os.path.isabs(rel) or ":" in rel:
+                errors.append(f"Absolute path or colon not permitted in workspace file spec: '{rel}'.")
+            for part in parts:
+                stem = part.split(".")[0].upper()
+                if stem in reserved_dos or part.upper() in reserved_dos:
+                    errors.append(f"Reserved Windows device name not permitted in file spec: '{rel}'.")
 
         # 4. Command safety checks
         for cmd in plan.permitted_commands:

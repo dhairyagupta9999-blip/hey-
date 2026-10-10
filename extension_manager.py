@@ -315,7 +315,7 @@ class ExtensionManager:
             if not proposal:
                 return False, f"Proposal '{proposal_id}' not found."
 
-            if proposal.status != ProposalStatus.APPROVED or proposal.approval_state != "APPROVED":
+            if proposal.status not in (ProposalStatus.APPROVED, ProposalStatus.STAGED) or proposal.approval_state != "APPROVED":
                 return False, f"Cannot activate proposal in status '{proposal.status.value}' without human approval."
 
             # Check if candidate has been materially mutated since approval
@@ -324,10 +324,11 @@ class ExtensionManager:
                 ProposalLifecycleManager.check_and_invalidate_on_material_change(proposal, proposal.candidate)
                 return False, "Candidate code or permissions mutated since approval. Re-approval required."
 
-            # Move through VERIFYING to ACTIVE
-            ProposalLifecycleManager.transition(proposal, ProposalStatus.VERIFYING)
-
             cand = proposal.candidate
+
+            # Move through VERIFYING to ACTIVE
+            if proposal.status != ProposalStatus.STAGED:
+                ProposalLifecycleManager.transition(proposal, ProposalStatus.VERIFYING)
 
             # Construct safe default handler
             def dynamic_handler(**kwargs) -> ToolResult:
@@ -355,6 +356,10 @@ class ExtensionManager:
 
             # Register in CapabilityRegistry
             self.capability_registry.register(cap)
+
+            # If candidate was in staged runtime, cleanly unregister from staged
+            if self.staged_runtime.is_staged(cand.candidate_id):
+                self.staged_runtime.rollback_and_deactivate(cand.candidate_id)
 
             ProposalLifecycleManager.transition(proposal, ProposalStatus.ACTIVE)
 
