@@ -145,6 +145,13 @@ class JevRuntime:
             event_bus=self.event_bus,
         )
 
+        from extension_manager import ExtensionManager
+        self.extension_manager = ExtensionManager(
+            capability_registry=self.capability_registry,
+            event_bus=self.event_bus,
+            local_integrations_dir=os.path.join(self.appdata_dir, "integrations"),
+        )
+
     def plan_and_execute_workflow(
         self,
         goal: str,
