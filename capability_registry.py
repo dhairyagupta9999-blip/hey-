@@ -46,6 +46,25 @@ class CapabilityRegistry:
         with self._lock:
             return bool(self._capabilities.pop(capability_id, None))
 
+    def is_registered(self, capability_id: str) -> bool:
+        """Check whether capability is currently registered."""
+        with self._lock:
+            return capability_id in self._capabilities
+
+    def backup_capability(self, capability_id: str) -> Optional[CapabilityDefinition]:
+        """Create a snapshot of the registered capability for transactional rollback."""
+        with self._lock:
+            cap = self._capabilities.get(capability_id)
+            if cap is None:
+                return None
+            import copy
+            return copy.copy(cap)
+
+    def restore_capability(self, capability: CapabilityDefinition) -> None:
+        """Restore a previously snapshotted capability definition."""
+        with self._lock:
+            self._capabilities[capability.capability_id] = capability
+
     def get(self, capability_id: str) -> Optional[CapabilityDefinition]:
         """Retrieve capability by identifier, supporting prefixed and unprefixed forms."""
         with self._lock:

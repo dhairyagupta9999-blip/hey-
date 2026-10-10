@@ -151,6 +151,7 @@ class JevRuntime:
             event_bus=self.event_bus,
             local_integrations_dir=os.path.join(self.appdata_dir, "integrations"),
         )
+        self.deployment_manager = self.extension_manager.deployment_manager
 
     def plan_and_execute_workflow(
         self,
@@ -210,6 +211,9 @@ class JevRuntime:
                 # Step 3: Start Proactive Heartbeat Engine
                 if self.enable_heartbeat:
                     self.heartbeat_engine.start()
+
+                # Step 3.5: Crash recovery and reconciliation of capability deployments (Phase 25)
+                self.deployment_manager.recover_deployments()
 
                 self._running = True
 

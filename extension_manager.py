@@ -47,6 +47,16 @@ from extension_workspace import ExtensionWorkspace
 from staged_runtime import StagedExecutionResult, StagedExtensionRuntime
 from staged_validation import ReviewPackage, StageOutcome, StagedValidationPipeline
 
+# Phase 25 Components
+import os
+import tempfile
+from capability_deployment import CapabilityDeploymentManager
+from deployment_manifest import (
+    DeploymentManifest,
+    DeploymentStatus,
+    DeploymentType,
+)
+
 
 class ExtensionManager:
     """Coordinates safe capability gap detection, proposal generation, validation, and activation."""
@@ -59,6 +69,8 @@ class ExtensionManager:
         local_integrations_dir: Optional[str] = None,
         safety_engine: Optional[Any] = None,
         network_available: bool = False,
+        deployment_manager: Optional[CapabilityDeploymentManager] = None,
+        has_process_isolation: bool = False,
     ) -> None:
         self.capability_registry = capability_registry
         self.event_bus = event_bus or EventBus()
@@ -86,6 +98,20 @@ class ExtensionManager:
         self._build_plans: Dict[str, ExtensionBuildPlan] = {}
         self._review_packages: Dict[str, ReviewPackage] = {}
         self._workspaces: Dict[str, ExtensionWorkspace] = {}
+
+        # Phase 25 Deployment Manager
+        if deployment_manager is not None:
+            self.deployment_manager = deployment_manager
+        else:
+            dep_dir = os.path.join(local_integrations_dir or tempfile.gettempdir(), "deployments")
+            self.deployment_manager = CapabilityDeploymentManager(
+                capability_registry=self.capability_registry,
+                staged_runtime=self.staged_runtime,
+                event_bus=self.event_bus,
+                memory_store=self.memory_store,
+                deployments_dir=dep_dir,
+                has_process_isolation=has_process_isolation,
+            )
 
     def _sanitize_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Scrub sensitive credentials and passwords before emitting or persisting."""
@@ -588,3 +614,143 @@ class ExtensionManager:
                 if proposal and proposal.status == ProposalStatus.STAGED:
                     ProposalLifecycleManager.transition(proposal, ProposalStatus.DEACTIVATED)
             return ok, msg
+
+    # -------------------------------------------------------------------------
+    # Phase 25 Capability Deployment & Lifecycle Recovery Integration
+    # -------------------------------------------------------------------------
+    def create_deployment_manifest(
+        self,
+        capability_id: str,
+        name: str,
+        description: str,
+        proposal_id: str,
+        candidate_hash: str,
+        deployment_type: DeploymentType = DeploymentType.APPROVED_EXTERNAL,
+        version: str = "1.0.0",
+        provenance: str = "builtin",
+        supported_outcomes: Optional[List[str]] = None,
+        dependencies: Optional[List[str]] = None,
+        required_permissions: Optional[List[TaskPermission]] = None,
+        input_contract: Optional[Dict[str, Any]] = None,
+        output_contract: Optional[Dict[str, Any]] = None,
+        artifact_hashes: Optional[Dict[str, str]] = None,
+        validation_summary: Optional[Dict[str, Any]] = None,
+    ) -> DeploymentManifest:
+        """Create a new immutable deployment manifest."""
+        return self.deployment_manager.create_deployment_manifest(
+            capability_id=capability_id,
+            name=name,
+            description=description,
+            proposal_id=proposal_id,
+            candidate_hash=candidate_hash,
+            deployment_type=deployment_type,
+            version=version,
+            provenance=provenance,
+            supported_outcomes=supported_outcomes,
+            dependencies=dependencies,
+            required_permissions=required_permissions,
+            input_contract=input_contract,
+            output_contract=output_contract,
+            artifact_hashes=artifact_hashes,
+            validation_summary=validation_summary,
+        )
+
+    def create_deployment_manifest_from_proposal(
+        self,
+        proposal_id: str,
+        deployment_type: Optional[DeploymentType] = None,
+        version: str = "1.0.0",
+    ) -> Optional[DeploymentManifest]:
+        """Convenience method to construct an immutable deployment manifest from an existing proposal."""
+        with self._lock:
+            proposal = self._proposals.get(proposal_id)
+            if not proposal:
+                return None
+            review_pkg = self._review_packages.get(proposal_id)
+            dep_type = deployment_type or DeploymentType.APPROVED_EXTERNAL
+
+            artifact_hashes = {}
+            if review_pkg:
+                for art in review_pkg.verified_artifacts:
+                    artifact_hashes[art.relative_path] = art.sha256
+
+            val_summary = {
+                "is_ready_for_review": review_pkg.is_ready_for_review if review_pkg else False,
+                "passed_stages": review_pkg.passed_stages if review_pkg else [],
+                "failed_stages": review_pkg.failed_stages if review_pkg else [],
+            }
+
+            return self.create_deployment_manifest(
+                capability_id=proposal.candidate.candidate_id,
+                name=proposal.candidate.name,
+                description=proposal.candidate.description,
+                proposal_id=proposal_id,
+                candidate_hash=proposal.candidate.content_hash,
+                deployment_type=dep_type,
+                version=version,
+                provenance=f"proposal:{proposal_id}",
+                supported_outcomes=proposal.candidate.supported_outcomes,
+                dependencies=proposal.candidate.dependencies,
+                required_permissions=proposal.candidate.required_permissions,
+                input_contract=proposal.candidate.input_schema,
+                output_contract=proposal.candidate.output_schema,
+                artifact_hashes=artifact_hashes,
+                validation_summary=val_summary,
+            )
+
+    def stage_deployment(self, deployment_id: str) -> Tuple[bool, Optional[str]]:
+        """Stage candidate in restricted runtime without mutating production registry."""
+        return self.deployment_manager.stage_deployment(deployment_id)
+
+    def approve_deployment(
+        self,
+        deployment_id: str,
+        approver: str = "security_officer",
+        scope_notes: str = "",
+    ) -> Tuple[bool, Optional[str]]:
+        """Explicitly approve deployment bound to manifest hash."""
+        return self.deployment_manager.approve_deployment(deployment_id, approver=approver, scope_notes=scope_notes)
+
+    def activate_deployment(
+        self,
+        deployment_id: str,
+        executor_override: Optional[Any] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        """Activate deployment into CapabilityRegistry with rollback safety."""
+        return self.deployment_manager.activate_deployment(deployment_id, executor_override=executor_override)
+
+    def deactivate_deployment(
+        self,
+        deployment_id: str,
+        drain_timeout_seconds: float = 3.0,
+    ) -> Tuple[bool, Optional[str]]:
+        """Deactivate deployment, draining in-flight operations."""
+        return self.deployment_manager.deactivate_deployment(deployment_id, drain_timeout_seconds=drain_timeout_seconds)
+
+    def rollback_deployment(self, deployment_id: str) -> Tuple[bool, Optional[str]]:
+        """Rollback deployment restoring previous capability state."""
+        return self.deployment_manager.rollback_deployment(deployment_id)
+
+    def invoke_deployed_capability(
+        self,
+        capability_id: str,
+        caller_permissions: Optional[List[TaskPermission]] = None,
+        inputs: Optional[Dict[str, Any]] = None,
+    ) -> ToolResult:
+        """Invoke active deployed capability with permission and drainage safety."""
+        return self.deployment_manager.invoke_deployed_capability(
+            capability_id=capability_id,
+            caller_permissions=caller_permissions,
+            inputs=inputs,
+        )
+
+    def recover_deployments(self) -> Dict[str, str]:
+        """Recover deployments after restart."""
+        return self.deployment_manager.recover_deployments()
+
+    def get_deployment_manifest(self, deployment_id: str) -> Optional[DeploymentManifest]:
+        return self.deployment_manager.get_manifest(deployment_id)
+
+    def list_deployments(self, status: Optional[DeploymentStatus] = None) -> List[DeploymentManifest]:
+        return self.deployment_manager.list_manifests(status)
+
