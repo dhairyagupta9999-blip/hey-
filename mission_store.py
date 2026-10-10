@@ -573,17 +573,45 @@ class SqliteMissionStore:
         """Reconcile an interrupted mission on startup.
 
         Guarantees:
-        - Interrupted tasks with side effects or non-idempotent nature are flagged NEEDS_ATTENTION.
+        - Interrupted tasks with side effects or non-idempotent nature are flagged BLOCKED/NEEDS_ATTENTION.
         - Idempotent tasks with no side effects are reset to PENDING.
         - Completed verified tasks are strictly preserved.
-        - Mission status is reconciled safely to NEEDS_ATTENTION or READY.
+        - Missions interrupted during CANCELLING are transitioned to CANCELLED.
+        - Missions interrupted during PLANNING without a plan are transitioned to NEEDS_ATTENTION.
+        - Mission status is reconciled safely to NEEDS_ATTENTION, CANCELLED, or READY.
         """
         mission = self.get_mission(mission_id)
-        if not mission or not mission.plan:
-            return mission
+        if not mission:
+            return None
 
-        has_ambiguity = False
         with self._lock:
+            # Handle cancellation interrupted across process boundary
+            if mission.status == MissionStatus.CANCELLING:
+                if mission.plan:
+                    for task in mission.plan.tasks:
+                        if task.status in {MissionTaskStatus.RUNNING, MissionTaskStatus.PENDING, MissionTaskStatus.NEEDS_APPROVAL}:
+                            task.status = MissionTaskStatus.CANCELLED
+                            self.update_task_status(task.task_id, status=MissionTaskStatus.CANCELLED)
+                self.update_mission_status(
+                    mission.mission_id,
+                    MissionStatus.CANCELLED,
+                    "Cancellation completed upon process restart.",
+                )
+                return self.get_mission(mission.mission_id)
+
+            # Handle planning interrupted before plan was produced
+            if mission.status == MissionStatus.PLANNING and not mission.plan:
+                self.update_mission_status(
+                    mission.mission_id,
+                    MissionStatus.NEEDS_ATTENTION,
+                    "Planning interrupted by process restart; manual re-planning required.",
+                )
+                return self.get_mission(mission.mission_id)
+
+            if not mission.plan:
+                return mission
+
+            has_ambiguity = False
             for task in mission.plan.tasks:
                 if task.status == MissionTaskStatus.RUNNING:
                     if task.side_effects_occurred or not task.is_idempotent:
@@ -600,7 +628,6 @@ class SqliteMissionStore:
                     else:
                         # Safe to retry
                         task.status = MissionTaskStatus.PENDING
-                        task.retry_count += 1
                         self.update_task_status(
                             task.task_id,
                             status=MissionTaskStatus.PENDING,

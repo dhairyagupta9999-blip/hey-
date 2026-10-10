@@ -73,6 +73,7 @@ class MissionCoordinator:
         self._in_flight_tasks: Dict[str, Set[str]] = {}  # mission_id -> set of running task_ids
         self._cancelled_missions: Set[str] = set()
         self._paused_missions: Set[str] = set()
+        self._active_mission_executions: Set[str] = set()
 
     def approve_task(self, mission_id: str, task_id: str) -> bool:
         """Explicitly approve a gated or high-risk task for the current plan version."""
@@ -213,6 +214,10 @@ class MissionCoordinator:
             if not mission:
                 raise ValueError(f"Mission '{mission_id}' not found.")
 
+            if mission_id in self._active_mission_executions:
+                logger.warning("Mission %s is already executing; skipping duplicate execution.", mission_id)
+                return mission
+
             if mission.status == MissionStatus.CREATED or not mission.plan:
                 raise ValueError(f"Mission '{mission_id}' has not been planned yet.")
 
@@ -237,9 +242,26 @@ class MissionCoordinator:
                 mission.transition_to(MissionStatus.RUNNING, reason="Starting mission task execution.")
                 self.store.update_mission_status(mission_id, MissionStatus.RUNNING, mission.status_reason)
 
+            self._active_mission_executions.add(mission_id)
             self._emit_event("mission.started", mission_id=mission_id, payload={"mode": mission.mode.value})
 
-        # Main execution loop
+        try:
+            return self._run_execution_loop(
+                mission_id=mission_id,
+                context=context,
+                granted_permissions=granted_permissions,
+            )
+        finally:
+            with self._lock:
+                self._active_mission_executions.discard(mission_id)
+
+    def _run_execution_loop(
+        self,
+        mission_id: str,
+        context: Optional[Dict[str, Any]] = None,
+        granted_permissions: Optional[List[TaskPermission]] = None,
+    ) -> Mission:
+        """Internal execution loop for mission tasks."""
         ctx = dict(context or {})
         granted_perms = set(granted_permissions or [])
 
@@ -314,6 +336,11 @@ class MissionCoordinator:
                         self.store.save_mission(mission)
                         return mission
                     else:
+                        mission.transition_to(
+                            MissionStatus.BLOCKED,
+                            reason="Cannot proceed: remaining tasks have unsatisfied dependencies.",
+                        )
+                        self.store.save_mission(mission)
                         return mission
 
             # 2. Check approval gates for next_task
@@ -357,7 +384,7 @@ class MissionCoordinator:
 
             # 3. Check resource governor slots before dispatch
             if self.resource_governor:
-                decision = self.resource_governor.acquire_slot(task=next_task, is_foreground=True)
+                decision = self.resource_governor.acquire_slot(task=next_task, is_foreground=False)
                 if not decision.allowed:
                     # Resource capacity reached: pause briefly or return
                     logger.warning(
@@ -447,7 +474,7 @@ class MissionCoordinator:
                     capability_id=task.capability_id,
                     description=task.description,
                     inputs=merged_inputs,
-                    depends_on=task.dependencies,
+                    depends_on=[],
                     approval_checkpoint=(task.approval_checkpoint and not already_approved),
                     approval_reason=task.approval_reason,
                     timeout_s=task.timeout_s,
@@ -481,8 +508,24 @@ class MissionCoordinator:
                         "verification_summary": wf_report.verification_summary,
                         "step_results": step_res,
                     }
+                    ctx[task.task_id] = output
                     if output and isinstance(output, dict):
                         ctx.update(output)
+                        for k, v in output.items():
+                            ctx[f"{task.task_id}.{k}"] = v
+                elif wf_report.status == WorkflowExecutionStatus.PAUSED_FOR_APPROVAL:
+                    # Paused at approval checkpoint inside WorkflowEngine
+                    success = False
+                    task.status = MissionTaskStatus.NEEDS_APPROVAL
+                    task.approval_checkpoint = True
+                    task.approval_reason = wf_report.approval_reason or "Approval required"
+                    self.store.update_task_status(task.task_id, MissionTaskStatus.NEEDS_APPROVAL)
+                    mission.transition_to(
+                        MissionStatus.WAITING_FOR_APPROVAL,
+                        reason=f"Workflow paused awaiting approval: {task.approval_reason}",
+                    )
+                    self.store.save_mission(mission)
+                    return False
                 else:
                     success = False
                     error_msg = wf_report.error or "Workflow execution failed."
@@ -502,6 +545,12 @@ class MissionCoordinator:
         with self._lock:
             self._in_flight_tasks.get(mission.mission_id, set()).discard(task.task_id)
             mission.budget.tasks_executed += 1
+
+            # If mission was CANCELLING and all in-flight workers have stopped, resolve to CANCELLED
+            if mission.status == MissionStatus.CANCELLING and not self._in_flight_tasks.get(mission.mission_id):
+                mission.transition_to(MissionStatus.CANCELLED, reason="All in-flight tasks stopped; cancellation completed.")
+                self.store.update_mission_status(mission.mission_id, MissionStatus.CANCELLED, mission.status_reason)
+
             self.store.save_mission(mission)
 
             if success:

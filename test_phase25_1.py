@@ -123,9 +123,10 @@ class TestPhase25_1ReliabilityAudit:
         assert canceled_flag.wait(timeout=1.0) is True
 
         # Test concurrency bound: fill active probes up to limit (10)
+        stop_dummy = threading.Event()
         dummy_threads = []
         for _ in range(10):
-            t = threading.Thread(target=lambda: time.sleep(1.0), daemon=True)
+            t = threading.Thread(target=lambda: stop_dummy.wait(timeout=5.0), daemon=True)
             t.start()
             with self.mgr._probe_lock:
                 self.mgr._active_probes.add(t)
@@ -137,6 +138,7 @@ class TestPhase25_1ReliabilityAudit:
         assert "concurrency limit reached" in str(err_limit).lower()
 
         # Wait for dummy threads to clean up
+        stop_dummy.set()
         for t in dummy_threads:
             t.join(timeout=1.5)
 
