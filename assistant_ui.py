@@ -62,7 +62,9 @@ def load_settings() -> dict:
         "tier3_provider": "openrouter",
         "tier3_daily_spend_cap": 0.10,
         "tier3_confirm_all_actions": True,
-        "tier3_always_confirm": ["delete_file", "run_powershell", "close_all", "shutdown_computer", "open_dangerous_file"]
+        "tier3_always_confirm": ["delete_file", "run_powershell", "close_all", "shutdown_computer", "open_dangerous_file"],
+        "opendots_gateway_enabled": False,
+        "opendots_gateway_port": 8765
     }
     if os.path.exists(SETTINGS_FILE):
         try:

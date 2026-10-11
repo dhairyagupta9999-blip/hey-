@@ -58,3 +58,8 @@ os.makedirs(SOUNDS_DIR, exist_ok=True)
 WAKE_CHIME = os.path.join(SOUNDS_DIR, "wake.wav")
 DICTATE_CHIME = os.path.join(SOUNDS_DIR, "pop.wav")
 TIMER_CHIME = os.path.join(SOUNDS_DIR, "timer.wav")
+
+# OpenDots Interoperability Gateway defaults
+OPENDOTS_GATEWAY_HOST_DEFAULT = "127.0.0.1"
+OPENDOTS_GATEWAY_PORT_DEFAULT = 8765
+OPENDOTS_GATEWAY_ENABLED_DEFAULT = False

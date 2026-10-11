@@ -767,3 +767,71 @@ def test_20_preservation_of_mission_and_workflow_behaviour(mission_env):
     loaded = store.get_mission(mission.mission_id)
     assert loaded is not None
     assert len(loaded.plan.tasks) == len(plan.tasks)
+
+
+# ---------------------------------------------------------------------------
+# Test 21: Audit MissionCreateDialog lifecycle, domain services & persistence
+# ---------------------------------------------------------------------------
+def test_21_mission_create_dialog_audit_and_lifecycle(mission_env):
+    interpreter = mission_env["interpreter"]
+    planner = mission_env["planner"]
+    store = mission_env["mission_store"]
+    win = mission_env["window"]
+
+    dialog = MissionCreateDialog(
+        mission_interpreter=interpreter,
+        mission_planner=planner,
+        mission_store=store,
+        parent=win,
+    )
+
+    # 1. Preview without text warning
+    dialog.txt_objective.setPlainText("")
+    with patch("PySide6.QtWidgets.QMessageBox.warning") as mock_warn:
+        dialog._on_preview_clicked()
+        assert mock_warn.called
+
+    # 2. Enter natural language objective with mode selection
+    dialog.txt_objective.setPlainText("Audit disk storage and clean temporary files older than 7 days")
+    dialog.rb_copilot.setChecked(True)
+
+    # Preview plan
+    dialog._on_preview_clicked()
+    assert dialog._preview_mission is not None
+    preview_txt = dialog.txt_preview.toPlainText()
+    assert "NORMALIZED GOAL:" in preview_txt
+    assert "ACCEPTANCE CRITERIA:" in preview_txt
+    assert "PLANNED TASKS:" in preview_txt
+    assert dialog._preview_mission.mode == MissionMode.COPILOT
+    assert dialog._preview_mission.status == MissionStatus.READY
+
+    # 3. Create and persist mission
+    with patch.object(dialog, "accept") as mock_accept:
+        dialog._on_create_clicked()
+        assert mock_accept.called
+
+    created_m = dialog.created_mission
+    assert created_m is not None
+    assert created_m.mission_id is not None
+    assert created_m.status == MissionStatus.READY
+    assert created_m.mode == MissionMode.COPILOT
+    assert created_m.plan is not None
+    assert len(created_m.plan.tasks) >= 1
+    assert len(created_m.acceptance_criteria) >= 1
+
+    # 4. Verify persistence across restart
+    loaded_m = store.get_mission(created_m.mission_id)
+    assert loaded_m is not None
+    assert loaded_m.mission_id == created_m.mission_id
+    assert loaded_m.status == MissionStatus.READY
+    assert len(loaded_m.plan.tasks) == len(created_m.plan.tasks)
+
+    # 5. Verify select and inspect in MissionCenterWindow
+    win.refresh_missions()
+    win.select_mission(created_m.mission_id)
+    assert win.current_mission_id == created_m.mission_id
+    assert win.lbl_mission_title.text() == created_m.objective
+    assert "[READY]" in win.lbl_status_badge.text()
+    assert win.task_graph_widget.table_tasks.rowCount() == len(created_m.plan.tasks)
+    assert win.criteria_widget.table_criteria.rowCount() == len(created_m.acceptance_criteria)
+    dialog.close()
