@@ -141,7 +141,11 @@ def main() -> int:
     finally:
         if service:
             service.stop()
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        try:
+            from test_cleanup_utils import safe_temp_dir_cleanup
+            safe_temp_dir_cleanup(temp_dir, explicit_artifacts=[db_path])
+        except Exception as exc:
+            print(f"[Audit Harness] Safe cleanup warning: {exc}")
         print("[Audit Harness] Cleaned up temporary files.")
 
 

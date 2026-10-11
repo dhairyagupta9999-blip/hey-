@@ -454,6 +454,7 @@ POWERSHELL_DENYLIST = [
     (re.compile(r"\b(?:DownloadFile|DownloadString|Net\.WebClient|BitsTransfer)\b", re.I), "arbitrary web download cradle"),
     (re.compile(r"\b(?:Invoke-WebRequest|Invoke-RestMethod|curl|wget)\b", re.I), "outbound network request"),
     (re.compile(r"\bRemove-Item\b.*-(?:Recurse|r)\b.*(?:C:\\Windows|C:\\Program Files|C:\\Users\\[^\\]+$|system32)", re.I), "recursive system path deletion"),
+    (re.compile(r"\bRemove-Item\b(?=.*-(?:Recurse|r)\b)(?=.*(?:hey-jev[\\/]data|HeyJev|hey-jev|\.venv|\bdata\b))", re.I), "recursive application or data directory deletion"),
     (re.compile(r"\b(?:format|diskpart)\b", re.I), "destructive disk partitioning or formatting"),
     (re.compile(r"\breg(?:\.exe)?\s+delete\b", re.I), "registry key deletion"),
     (re.compile(r"\bnet\s+(?:user|localgroup)\b", re.I), "user account management"),

@@ -203,7 +203,7 @@ def make_http_request(
             req.add_header(k, v)
 
     try:
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
+        with urllib.request.urlopen(req, timeout=15.0) as resp:
             resp_headers = {k: v for k, v in resp.headers.items()}
             body = resp.read()
             return resp.status, resp_headers, body
