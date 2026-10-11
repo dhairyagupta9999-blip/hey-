@@ -134,6 +134,7 @@ class MainWindow(QMainWindow):
             self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
 
         self.bubble = DictationBubble()
+        self._mission_center_window = None
 
         # Connect signals
         self.signals.status_updated.connect(self._on_status_updated)
@@ -371,6 +372,10 @@ class MainWindow(QMainWindow):
         about_action.triggered.connect(self._show_about_dialog)
         tray_menu.addAction(about_action)
 
+        missions_action = QAction("Mission Center\u2026", self)
+        missions_action.triggered.connect(self.open_mission_center)
+        tray_menu.addAction(missions_action)
+
         tray_menu.addSeparator()
 
         quit_action = QAction("Quit Hey Jev", self)
@@ -471,6 +476,27 @@ class MainWindow(QMainWindow):
             card_lay.addWidget(lbl)
 
         lay.addWidget(card)
+
+        # Autonomous Missions Card
+        mission_card = QWidget()
+        mission_card_lay = QVBoxLayout(mission_card)
+        mission_card.setStyleSheet("background-color: #1e293b; border-radius: 8px; padding: 12px;")
+
+        mission_title = QLabel("Autonomous Missions")
+        mission_title.setFont(QFont("Segoe UI", 12, QFont.Bold))
+        mission_card_lay.addWidget(mission_title)
+
+        mission_desc = QLabel("Track, control, and inspect long-running autonomous goals, task graphs, live progress, and verification outcomes.")
+        mission_desc.setStyleSheet("color: #cbd5e1; font-size: 11px;")
+        mission_desc.setWordWrap(True)
+        mission_card_lay.addWidget(mission_desc)
+
+        self.btn_mission_center = QPushButton("Open Mission Center")
+        self.btn_mission_center.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: 600; padding: 6px 12px;")
+        self.btn_mission_center.clicked.connect(self.open_mission_center)
+        mission_card_lay.addWidget(self.btn_mission_center)
+
+        lay.addWidget(mission_card)
         lay.addStretch()
         return w
 
@@ -1154,7 +1180,33 @@ class MainWindow(QMainWindow):
                 pass
         return False, 0
 
+    def open_mission_center(self):
+        """Open or bring to front the Hey Jev Mission Center window."""
+        if getattr(self, "_mission_center_window", None) is not None:
+            self._mission_center_window.show()
+            self._mission_center_window.raise_()
+            self._mission_center_window.activateWindow()
+            return self._mission_center_window
+
+        try:
+            from mission_center import MissionCenterWindow
+            from runtime_manager import get_runtime
+            runtime = get_runtime()
+            self._mission_center_window = MissionCenterWindow(runtime=runtime, parent=None)
+            self._mission_center_window.show()
+            self._mission_center_window.raise_()
+            self._mission_center_window.activateWindow()
+            return self._mission_center_window
+        except Exception as e:
+            QMessageBox.warning(self, "Mission Center Error", f"Could not open Mission Center: {e}")
+            return None
+
     def _quit_application(self):
+        if getattr(self, "_mission_center_window", None) is not None:
+            try:
+                self._mission_center_window.close()
+            except Exception:
+                pass
         try:
             from runtime_manager import stop_runtime
             stop_runtime()
