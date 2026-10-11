@@ -32,6 +32,7 @@ import sys
 import threading
 import time
 import urllib.parse
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
@@ -78,6 +79,7 @@ class OpenDotsGatewayConfig:
     bearer_token: Optional[str] = None
     max_request_bytes: int = 1_048_576  # 1 MB
     max_timeline_events: int = 200
+    max_concurrency: int = 8
 
     def validate(self) -> None:
         """Validate configuration constraints and fail-safe security invariants."""
@@ -107,6 +109,12 @@ class OpenDotsGatewayConfig:
         except ValueError:
             port = 8765
 
+        concurrency_str = os.environ.get("JEV_OPENDOTS_MAX_CONCURRENCY", "8").strip()
+        try:
+            max_concurrency = int(concurrency_str)
+        except ValueError:
+            max_concurrency = 8
+
         host = os.environ.get("JEV_OPENDOTS_HOST", "127.0.0.1").strip() or "127.0.0.1"
         token = os.environ.get("JEV_OPENDOTS_BEARER_TOKEN", "").strip() or None
 
@@ -115,6 +123,7 @@ class OpenDotsGatewayConfig:
             host=host,
             port=port,
             bearer_token=token,
+            max_concurrency=max_concurrency,
         )
         return cfg
 
@@ -136,6 +145,10 @@ MCP_TOOLS: List[Dict[str, Any]] = [
                 }
             },
             "additionalProperties": False,
+        },
+        "annotations": {
+            "readOnlyHint": True,
+            "title": "Subsystem Operational Health",
         },
     },
     {
@@ -159,6 +172,10 @@ MCP_TOOLS: List[Dict[str, Any]] = [
             },
             "additionalProperties": False,
         },
+        "annotations": {
+            "readOnlyHint": True,
+            "title": "List Mission Summaries",
+        },
     },
     {
         "name": "jev_get_mission",
@@ -173,6 +190,10 @@ MCP_TOOLS: List[Dict[str, Any]] = [
             },
             "required": ["mission_id"],
             "additionalProperties": False,
+        },
+        "annotations": {
+            "readOnlyHint": True,
+            "title": "Get Detailed Mission Plan",
         },
     },
     {
@@ -192,6 +213,10 @@ MCP_TOOLS: List[Dict[str, Any]] = [
             },
             "required": ["mission_id"],
             "additionalProperties": False,
+        },
+        "annotations": {
+            "readOnlyHint": True,
+            "title": "Get Mission Lifecycle Timeline",
         },
     },
     {
@@ -215,6 +240,10 @@ MCP_TOOLS: List[Dict[str, Any]] = [
             },
             "additionalProperties": False,
         },
+        "annotations": {
+            "readOnlyHint": True,
+            "title": "Search System Capabilities",
+        },
     },
     {
         "name": "jev_create_mission_preview",
@@ -237,6 +266,10 @@ MCP_TOOLS: List[Dict[str, Any]] = [
             },
             "required": ["objective"],
             "additionalProperties": False,
+        },
+        "annotations": {
+            "readOnlyHint": False,
+            "title": "Preview Mission Plan",
         },
     },
     {
@@ -265,6 +298,10 @@ MCP_TOOLS: List[Dict[str, Any]] = [
             "required": ["objective"],
             "additionalProperties": False,
         },
+        "annotations": {
+            "readOnlyHint": False,
+            "title": "Submit Mission Objective",
+        },
     },
     {
         "name": "jev_request_pause",
@@ -280,6 +317,10 @@ MCP_TOOLS: List[Dict[str, Any]] = [
             "required": ["mission_id"],
             "additionalProperties": False,
         },
+        "annotations": {
+            "readOnlyHint": False,
+            "title": "Pause Mission Execution",
+        },
     },
     {
         "name": "jev_request_resume",
@@ -294,6 +335,10 @@ MCP_TOOLS: List[Dict[str, Any]] = [
             },
             "required": ["mission_id"],
             "additionalProperties": False,
+        },
+        "annotations": {
+            "readOnlyHint": False,
+            "title": "Resume Mission Execution",
         },
     },
     {
@@ -313,6 +358,10 @@ MCP_TOOLS: List[Dict[str, Any]] = [
             },
             "required": ["mission_id"],
             "additionalProperties": False,
+        },
+        "annotations": {
+            "readOnlyHint": False,
+            "title": "Cancel Mission Execution",
         },
     },
 ]
@@ -350,10 +399,25 @@ class OpenDotsMCPGateway:
             lambda: collections.deque(maxlen=self.config.max_timeline_events)
         )
         self._seen_event_fingerprints: Set[Tuple[str, str, float]] = set()
+        self._sessions: Dict[str, Dict[str, Any]] = {}
+        self._latest_session_id: Optional[str] = None
 
         # Connect to coordinator EventBus if available
         if self.coordinator and getattr(self.coordinator, "event_bus", None):
             self._subscribe_events(self.coordinator.event_bus)
+
+    @property
+    def latest_session_id(self) -> Optional[str]:
+        with self._lock:
+            return self._latest_session_id
+
+    def has_session(self, session_id: str) -> bool:
+        with self._lock:
+            return session_id in self._sessions
+
+    def terminate_session(self, session_id: str) -> bool:
+        with self._lock:
+            return self._sessions.pop(session_id, None) is not None
 
     def _subscribe_events(self, event_bus: Any) -> None:
         """Subscribe to mission events to maintain an in-memory chronological timeline."""
@@ -398,7 +462,10 @@ class OpenDotsMCPGateway:
     # JSON-RPC 2.0 Handler
     # -----------------------------------------------------------------------
 
-    def handle_jsonrpc(self, request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    SUPPORTED_PROTOCOL_VERSIONS = ["2025-03-26", "2024-11-05"]
+    DEFAULT_PROTOCOL_VERSION = "2025-03-26"
+
+    def handle_jsonrpc(self, request: Dict[str, Any], session_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Process a single JSON-RPC 2.0 message conforming strictly to the MCP specification."""
         if not isinstance(request, dict):
             return {
@@ -412,9 +479,12 @@ class OpenDotsMCPGateway:
         params = request.get("params", {})
 
         # Handle notifications (requests with no 'id')
-        is_notification = ("id" not in request or req_id is None) and method == "notifications/initialized"
+        is_notification = ("id" not in request or req_id is None) and (
+            method == "notifications/initialized"
+            or (isinstance(method, str) and method.startswith("notifications/"))
+        )
         if is_notification:
-            logger.debug("Received MCP notification: notifications/initialized")
+            logger.debug("Received MCP notification: %s", method)
             return None
 
         if not method or not isinstance(method, str):
@@ -426,7 +496,7 @@ class OpenDotsMCPGateway:
 
         try:
             if method == "initialize":
-                return self._handle_initialize(req_id, params)
+                return self._handle_initialize(req_id, params, session_id=session_id)
             elif method == "ping":
                 return {"jsonrpc": "2.0", "id": req_id, "result": {}}
             elif method == "tools/list":
@@ -453,13 +523,28 @@ class OpenDotsMCPGateway:
                 },
             }
 
-    def _handle_initialize(self, req_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Respond to MCP initialize handshake."""
+    def _handle_initialize(self, req_id: Any, params: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
+        """Respond to MCP initialize handshake with protocol version negotiation and session registration."""
+        requested_version = params.get("protocolVersion")
+        if requested_version in self.SUPPORTED_PROTOCOL_VERSIONS:
+            negotiated_version = requested_version
+        else:
+            negotiated_version = self.DEFAULT_PROTOCOL_VERSION
+
+        new_session_id = session_id or str(uuid.uuid4())
+        with self._lock:
+            self._sessions[new_session_id] = {
+                "created_at": time.time(),
+                "protocol_version": negotiated_version,
+                "client_info": params.get("clientInfo", {}),
+            }
+            self._latest_session_id = new_session_id
+
         return {
             "jsonrpc": "2.0",
             "id": req_id,
             "result": {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": negotiated_version,
                 "capabilities": {
                     "tools": {"listChanged": False},
                 },
@@ -1014,7 +1099,7 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 
 class OpenDotsHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
-    """HTTP Request Handler enforcing Bearer auth and routing JSON-RPC 2.0."""
+    """HTTP Request Handler enforcing Bearer auth, loopback host/origin checks, and routing Streamable HTTP MCP."""
 
     server: OpenDotsHTTPServer  # Type hint
 
@@ -1024,10 +1109,76 @@ class OpenDotsHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
         msg = format % args
         logger.debug("[HTTP Gateway] %s - %s", self.address_string(), sanitize_content(msg))
 
-    def _send_json(self, status_code: int, data: Dict[str, Any]) -> None:
+    def _is_loopback_host(self, host_str: str) -> bool:
+        """Check if Host header points strictly to loopback."""
+        if not host_str:
+            return False
+        host_str = host_str.strip()
+        if host_str.startswith("["):
+            bracket_end = host_str.find("]")
+            if bracket_end != -1:
+                ip = host_str[1:bracket_end].strip()
+                return ip in ("::1", "0:0:0:0:0:0:0:1")
+        hostname = host_str.split(":")[0].strip().lower()
+        return hostname in ("127.0.0.1", "localhost")
+
+    def _drain_body(self) -> None:
+        """Drain request body if present to prevent Windows TCP RST on early response/close."""
+        cl = self.headers.get("Content-Length")
+        if cl:
+            try:
+                length = int(cl)
+                if 0 < length <= self.server.gateway.config.max_request_bytes:
+                    self.rfile.read(length)
+            except Exception:
+                pass
+
+    def _check_host_header(self) -> bool:
+        """Enforce strict loopback Host validation to prevent DNS rebinding attacks."""
+        host = self.headers.get("Host", "")
+        if not self._is_loopback_host(host):
+            self._drain_body()
+            self._send_json(403, {"error": "Forbidden: invalid Host header for loopback service."})
+            return False
+        return True
+
+    def _is_loopback_origin(self, origin_str: str) -> bool:
+        """Check if Origin header originates from loopback."""
+        if not origin_str:
+            return True
+        try:
+            parsed = urllib.parse.urlparse(origin_str)
+            hostname = (parsed.hostname or "").lower()
+            return hostname in ("127.0.0.1", "localhost", "::1")
+        except Exception:
+            return False
+
+    def _check_origin_header(self) -> bool:
+        """Validate Origin header: reject untrusted external origins; allow loopback."""
+        origin = self.headers.get("Origin")
+        if origin and not self._is_loopback_origin(origin):
+            self._drain_body()
+            self._send_json(403, {"error": "Forbidden: untrusted Origin."})
+            return False
+        return True
+
+    def _set_cors_headers(self) -> None:
+        """Apply CORS headers for valid loopback origins."""
+        origin = self.headers.get("Origin")
+        if origin and self._is_loopback_origin(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, Mcp-Session-Id")
+            self.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id")
+            self.send_header("Access-Control-Max-Age", "86400")
+
+    def _send_json(self, status_code: int, data: Any, session_id: Optional[str] = None) -> None:
         """Send JSON response with proper headers."""
         body = json.dumps(data).encode("utf-8")
         self.send_response(status_code)
+        self._set_cors_headers()
+        if session_id:
+            self.send_header("Mcp-Session-Id", session_id)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Connection", "close")
@@ -1042,71 +1193,213 @@ class OpenDotsHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
         token = auth_header[7:].strip()
         return self.server.gateway.authenticate_token(token)
 
-    def do_GET(self) -> None:
-        """Handle GET requests for health check or ping."""
-        parsed = urllib.parse.urlparse(self.path)
-        if parsed.path in ("/health", "/ping"):
-            self._send_json(200, {
-                "status": "ok",
-                "service": "hey-jev-opendots-gateway",
-                "loopback": True,
-            })
+    def do_OPTIONS(self) -> None:
+        """Handle CORS preflight requests."""
+        if not self.server.concurrency_semaphore.acquire(blocking=False):
+            self._send_json(503, {"error": "Service Unavailable: gateway concurrency limit reached."})
             return
+        try:
+            if not self._check_host_header():
+                return
+            if not self._check_origin_header():
+                return
+            self.send_response(204)
+            self._set_cors_headers()
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
+            self.end_headers()
+        finally:
+            self.server.concurrency_semaphore.release()
 
-        self._send_json(404, {"error": "Not Found"})
+    def do_GET(self) -> None:
+        """Handle GET requests for health check or ping, and reject /mcp without SSE."""
+        if not self.server.concurrency_semaphore.acquire(blocking=False):
+            self._send_json(503, {"error": "Service Unavailable: gateway concurrency limit reached."})
+            return
+        try:
+            if not self._check_host_header():
+                return
+            if not self._check_origin_header():
+                return
+
+            parsed = urllib.parse.urlparse(self.path)
+            if parsed.path in ("/health", "/ping"):
+                self._send_json(200, {
+                    "status": "ok",
+                    "service": "hey-jev-opendots-gateway",
+                    "loopback": True,
+                })
+                return
+
+            if parsed.path in ("/mcp", "/jsonrpc"):
+                # Per MCP Streamable HTTP transport spec:
+                # If server receives GET on endpoint that does not support SSE, respond with 405 Method Not Allowed
+                self.send_response(405)
+                self._set_cors_headers()
+                self.send_header("Allow", "POST, DELETE, OPTIONS")
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                error_body = json.dumps({
+                    "error": "Method Not Allowed: MCP endpoint requires POST for requests or DELETE for session termination."
+                }).encode("utf-8")
+                self.send_header("Content-Length", str(len(error_body)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(error_body)
+                return
+
+            self._send_json(404, {"error": "Not Found"})
+        finally:
+            self.server.concurrency_semaphore.release()
+
+    def do_DELETE(self) -> None:
+        """Handle DELETE requests to terminate an MCP session."""
+        if not self.server.concurrency_semaphore.acquire(blocking=False):
+            self._send_json(503, {"error": "Service Unavailable: gateway concurrency limit reached."})
+            return
+        try:
+            if not self._check_host_header():
+                return
+            if not self._check_origin_header():
+                return
+
+            parsed = urllib.parse.urlparse(self.path)
+            if parsed.path not in ("/mcp", "/jsonrpc", "/"):
+                self._send_json(404, {"error": "Not Found"})
+                return
+
+            if not self._check_auth():
+                self._send_json(401, {"error": "Unauthorized: missing or invalid bearer token."})
+                return
+
+            session_id = self.headers.get("Mcp-Session-Id", "").strip()
+            if session_id:
+                self.server.gateway.terminate_session(session_id)
+
+            self.send_response(204)
+            self._set_cors_headers()
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
+            self.end_headers()
+        finally:
+            self.server.concurrency_semaphore.release()
 
     def do_POST(self) -> None:
         """Handle POST requests for MCP JSON-RPC."""
-        parsed = urllib.parse.urlparse(self.path)
-        if parsed.path not in ("/mcp", "/jsonrpc", "/"):
-            self._send_json(404, {"error": "Not Found"})
+        if not self.server.concurrency_semaphore.acquire(blocking=False):
+            self._drain_body()
+            self._send_json(503, {"error": "Service Unavailable: gateway concurrency limit reached."})
             return
-
-        # Enforce Authentication
-        if not self._check_auth():
-            self._send_json(401, {
-                "error": "Unauthorized: missing or invalid bearer token.",
-            })
-            return
-
-        # Check payload size
-        content_length_header = self.headers.get("Content-Length")
-        if not content_length_header:
-            self._send_json(411, {"error": "Length Required"})
-            return
-
         try:
-            length = int(content_length_header)
-        except ValueError:
-            self._send_json(400, {"error": "Invalid Content-Length"})
-            return
+            if not self._check_host_header():
+                return
+            if not self._check_origin_header():
+                return
 
-        if length > self.server.gateway.config.max_request_bytes:
-            self._send_json(413, {"error": "Payload Too Large"})
-            return
+            parsed = urllib.parse.urlparse(self.path)
+            if parsed.path not in ("/mcp", "/jsonrpc", "/"):
+                self._drain_body()
+                self._send_json(404, {"error": "Not Found"})
+                return
 
-        try:
-            body_bytes = self.rfile.read(length)
-            body_text = body_bytes.decode("utf-8")
-            request_data = json.loads(body_text)
-        except Exception as e:
-            self._send_json(400, {
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {"code": -32700, "message": f"Parse error: {str(e)}"},
-            })
-            return
+            # Enforce Accept Header validation
+            accept = self.headers.get("Accept", "").strip().lower()
+            if accept:
+                acceptable = any(t in accept for t in ("application/json", "text/event-stream", "*/*"))
+                if not acceptable:
+                    self._drain_body()
+                    self._send_json(406, {
+                        "error": "Not Acceptable: client must accept application/json or text/event-stream.",
+                    })
+                    return
 
-        # Dispatch via gateway
-        response_data = self.server.gateway.handle_jsonrpc(request_data)
+            # Enforce Authentication
+            if not self._check_auth():
+                self._drain_body()
+                self._send_json(401, {
+                    "error": "Unauthorized: missing or invalid bearer token.",
+                })
+                return
 
-        if response_data is None:
-            # Notification with no response
-            self.send_response(204)
-            self.end_headers()
-            return
+            # Check payload size
+            content_length_header = self.headers.get("Content-Length")
+            if not content_length_header:
+                self._send_json(411, {"error": "Length Required"})
+                return
 
-        self._send_json(200, response_data)
+            try:
+                length = int(content_length_header)
+            except ValueError:
+                self._send_json(400, {"error": "Invalid Content-Length"})
+                return
+
+            if length > self.server.gateway.config.max_request_bytes:
+                self._send_json(413, {"error": "Payload Too Large"})
+                return
+
+            try:
+                body_bytes = self.rfile.read(length)
+                body_text = body_bytes.decode("utf-8")
+                request_data = json.loads(body_text)
+            except Exception as e:
+                self._send_json(400, {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32700, "message": f"Parse error: {str(e)}"},
+                })
+                return
+
+            session_id = self.headers.get("Mcp-Session-Id", "").strip() or None
+
+            # Handle JSON-RPC Batch
+            if isinstance(request_data, list):
+                if not request_data:
+                    self._send_json(400, {
+                        "jsonrpc": "2.0",
+                        "id": None,
+                        "error": {"code": -32600, "message": "Invalid Request: empty batch."},
+                    })
+                    return
+
+                batch_responses = []
+                for item in request_data:
+                    res = self.server.gateway.handle_jsonrpc(item, session_id=session_id)
+                    if res is not None:
+                        batch_responses.append(res)
+
+                active_session_id = session_id or self.server.gateway.latest_session_id
+                if not batch_responses:
+                    # All were notifications -> 202 Accepted
+                    self.send_response(202)
+                    self._set_cors_headers()
+                    if active_session_id:
+                        self.send_header("Mcp-Session-Id", active_session_id)
+                    self.send_header("Content-Length", "0")
+                    self.send_header("Connection", "close")
+                    self.end_headers()
+                    return
+
+                self._send_json(200, batch_responses, session_id=active_session_id)
+                return
+
+            # Single JSON-RPC Request
+            response_data = self.server.gateway.handle_jsonrpc(request_data, session_id=session_id)
+
+            active_session_id = session_id or self.server.gateway.latest_session_id
+
+            if response_data is None:
+                # Notification with no response per MCP Streamable HTTP specification: return 202 Accepted
+                self.send_response(202)
+                self._set_cors_headers()
+                if active_session_id:
+                    self.send_header("Mcp-Session-Id", active_session_id)
+                self.send_header("Content-Length", "0")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                return
+
+            self._send_json(200, response_data, session_id=active_session_id)
+        finally:
+            self.server.concurrency_semaphore.release()
 
 
 class OpenDotsHTTPServer(ThreadedHTTPServer):
@@ -1116,8 +1409,10 @@ class OpenDotsHTTPServer(ThreadedHTTPServer):
         server_address: Tuple[str, int],
         RequestHandlerClass: type,
         gateway: OpenDotsMCPGateway,
+        max_concurrency: int = 8,
     ) -> None:
         self.gateway = gateway
+        self.concurrency_semaphore = threading.Semaphore(max_concurrency)
         super().__init__(server_address, RequestHandlerClass)
 
 
@@ -1165,6 +1460,7 @@ class OpenDotsGatewayService:
                 server_addr,
                 OpenDotsHTTPRequestHandler,
                 self.gateway,
+                max_concurrency=self.gateway.config.max_concurrency,
             )
 
             self._thread = threading.Thread(
