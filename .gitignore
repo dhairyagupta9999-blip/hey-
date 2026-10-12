@@ -6,6 +6,7 @@ __pycache__/
 .env
 cache/
 *.wav
+!assets/sounds/*.wav
 *.mp3
 *.docx
 *.log
