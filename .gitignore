@@ -21,3 +21,11 @@ test_clips/
 benchmark_stt_results.json
 test_cache.json
 *.onnx
+.pytest_cache/
+*.db
+*.sqlite
+*.sqlite3
+data/
+node_modules/
+.coverage
+htmlcov/
