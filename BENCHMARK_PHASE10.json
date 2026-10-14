@@ -1,0 +1,258 @@
+{
+  "timestamp": "2026-10-06T13:18:11Z",
+  "hardware": {
+    "cpu": "Intel Core i3-5005U (2C/4T @ 2.00GHz)",
+    "ram_gb": 7.93,
+    "os": "Windows 10 Pro 64-bit",
+    "python": "3.11.9"
+  },
+  "model_metadata": {
+    "model_file": "kokoro-v1.0.onnx",
+    "model_size_mb": 310.43,
+    "voices_file": "voices-v1.0.bin",
+    "voices_size_mb": 26.91,
+    "wrapper_package": "kokoro-onnx 0.6.1",
+    "wrapper_license": "MIT",
+    "model_license": "Apache-2.0"
+  },
+  "memory": {
+    "ram_before_mb": 44.3,
+    "ram_after_load_mb": 402.4,
+    "ram_delta_mb": 358.2,
+    "cold_load_latency_ms": 6323.3
+  },
+  "synthesis_results": {
+    "english": [
+      {
+        "tag": "short",
+        "text": "Hello.",
+        "lang": "en-us",
+        "voice": "am_adam",
+        "synth_ms": 3207.0,
+        "audio_dur_s": 0.88,
+        "rtf": 3.63
+      },
+      {
+        "tag": "acknowledgement",
+        "text": "Okay, opening Spotify.",
+        "lang": "en-us",
+        "voice": "am_adam",
+        "synth_ms": 3501.9,
+        "audio_dur_s": 1.88,
+        "rtf": 1.87
+      },
+      {
+        "tag": "action",
+        "text": "I've locked the screen.",
+        "lang": "en-us",
+        "voice": "am_adam",
+        "synth_ms": 3804.4,
+        "audio_dur_s": 1.44,
+        "rtf": 2.65
+      },
+      {
+        "tag": "medium",
+        "text": "The volume is now at forty percent.",
+        "lang": "en-us",
+        "voice": "am_adam",
+        "synth_ms": 4419.6,
+        "audio_dur_s": 2.27,
+        "rtf": 1.95
+      },
+      {
+        "tag": "error",
+        "text": "I'm not sure what you mean. Try saying it differently.",
+        "lang": "en-us",
+        "voice": "am_adam",
+        "synth_ms": 6614.6,
+        "audio_dur_s": 3.05,
+        "rtf": 2.17
+      },
+      {
+        "tag": "conversational",
+        "text": "Jev is ready and listening to your command.",
+        "lang": "en-us",
+        "voice": "am_adam",
+        "synth_ms": 4482.3,
+        "audio_dur_s": 2.74,
+        "rtf": 1.64
+      },
+      {
+        "tag": "long",
+        "text": "I couldn't complete that because the request timed out.",
+        "lang": "en-us",
+        "voice": "am_adam",
+        "synth_ms": 4608.1,
+        "audio_dur_s": 2.73,
+        "rtf": 1.69
+      },
+      {
+        "tag": "wake_phrase",
+        "text": "Hey Jev is listening.",
+        "lang": "en-us",
+        "voice": "am_adam",
+        "synth_ms": 2945.8,
+        "audio_dur_s": 1.64,
+        "rtf": 1.8
+      },
+      {
+        "tag": "status",
+        "text": "Jev is ready.",
+        "lang": "en-us",
+        "voice": "am_adam",
+        "synth_ms": 2376.8,
+        "audio_dur_s": 1.26,
+        "rtf": 1.89
+      }
+    ],
+    "hindi": [
+      {
+        "tag": "short",
+        "text": "नमस्ते।",
+        "lang": "hi",
+        "voice": "hm_omega",
+        "synth_ms": 2658.8,
+        "audio_dur_s": 0.94,
+        "rtf": 2.83
+      },
+      {
+        "tag": "acknowledgement",
+        "text": "ठीक है, Spotify खोल रहा हूँ।",
+        "lang": "hi",
+        "voice": "hm_omega",
+        "synth_ms": 4505.5,
+        "audio_dur_s": 2.62,
+        "rtf": 1.72
+      },
+      {
+        "tag": "action",
+        "text": "मैंने स्क्रीन लॉक कर दी है।",
+        "lang": "hi",
+        "voice": "hm_omega",
+        "synth_ms": 3623.6,
+        "audio_dur_s": 1.96,
+        "rtf": 1.85
+      },
+      {
+        "tag": "medium",
+        "text": "वॉल्यूम अब चालीस प्रतिशत है।",
+        "lang": "hi",
+        "voice": "hm_omega",
+        "synth_ms": 4114.8,
+        "audio_dur_s": 2.35,
+        "rtf": 1.75
+      },
+      {
+        "tag": "question",
+        "text": "क्या मैं आपकी मदद कर सकता हूँ?",
+        "lang": "hi",
+        "voice": "hm_omega",
+        "synth_ms": 4222.0,
+        "audio_dur_s": 2.56,
+        "rtf": 1.65
+      },
+      {
+        "tag": "error",
+        "text": "मुझे समझ नहीं आया। क्या आप इसे दोबारा कह सकते हैं?",
+        "lang": "hi",
+        "voice": "hm_omega",
+        "synth_ms": 6503.8,
+        "audio_dur_s": 4.34,
+        "rtf": 1.5
+      },
+      {
+        "tag": "long",
+        "text": "यह काम पूरा नहीं हो सका क्योंकि अनुरोध का समय समाप्त हो गया।",
+        "lang": "hi",
+        "voice": "hm_omega",
+        "synth_ms": 8380.4,
+        "audio_dur_s": 5.12,
+        "rtf": 1.64
+      },
+      {
+        "tag": "status",
+        "text": "जेव तैयार है।",
+        "lang": "hi",
+        "voice": "hm_omega",
+        "synth_ms": 2671.9,
+        "audio_dur_s": 1.34,
+        "rtf": 1.99
+      }
+    ],
+    "hinglish_and_mixed": [
+      {
+        "tag": "hinglish_1",
+        "text": "ठीक है, I am opening Spotify.",
+        "lang": "hi",
+        "voice": "hm_omega",
+        "synth_ms": 4721.8,
+        "audio_dur_s": 2.94,
+        "rtf": 1.6
+      },
+      {
+        "tag": "hinglish_2",
+        "text": "मैं अभी volume कम कर रहा हूँ।",
+        "lang": "hi",
+        "voice": "hm_omega",
+        "synth_ms": 4579.2,
+        "audio_dur_s": 2.69,
+        "rtf": 1.7
+      },
+      {
+        "tag": "hinglish_3",
+        "text": "Jev is ready.",
+        "lang": "en-us",
+        "voice": "am_adam",
+        "synth_ms": 2351.4,
+        "audio_dur_s": 1.26,
+        "rtf": 1.87
+      },
+      {
+        "tag": "app_names",
+        "text": "Opening VS Code and Spotify now.",
+        "lang": "en-us",
+        "voice": "am_adam",
+        "synth_ms": 3900.0,
+        "audio_dur_s": 2.42,
+        "rtf": 1.61
+      },
+      {
+        "tag": "numbers",
+        "text": "Set timer for 45 minutes and 30 seconds.",
+        "lang": "en-us",
+        "voice": "am_adam",
+        "synth_ms": 4657.9,
+        "audio_dur_s": 2.91,
+        "rtf": 1.6
+      },
+      {
+        "tag": "abbreviations",
+        "text": "Switching to CPU mode for the AI agent.",
+        "lang": "en-us",
+        "voice": "am_adam",
+        "synth_ms": 4540.2,
+        "audio_dur_s": 2.95,
+        "rtf": 1.54
+      }
+    ]
+  },
+  "summary": {
+    "total_phrases_evaluated": 23,
+    "mean_latency_ms": 4234.4,
+    "p50_latency_ms": 4222.0,
+    "p95_latency_ms": 6603.6,
+    "worst_latency_ms": 8380.4,
+    "best_latency_ms": 2351.4,
+    "mean_rtf": 1.92,
+    "p50_rtf": 1.75,
+    "p95_rtf": 2.81,
+    "worst_rtf": 3.63,
+    "peak_ram_mb": 542.3
+  },
+  "playback_latency": {
+    "uncached_kokoro_ms": 3589.3,
+    "cached_kokoro_ms": 1.0,
+    "uncached_fish_audio_ms": 1831.5,
+    "cached_fish_audio_ms": 0.5
+  }
+}

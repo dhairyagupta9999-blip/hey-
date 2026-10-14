@@ -1,0 +1,50 @@
+{
+  "phase": "18",
+  "timestamp": 1791352672.835599,
+  "planning_ms": {
+    "p50": 1.7597,
+    "p95": 8.5522,
+    "mean": 3.0841
+  },
+  "routing_ms": {
+    "p50": 0.1678,
+    "p95": 0.4407,
+    "mean": 0.2276
+  },
+  "result_merge_ms": {
+    "p50": 0.5787,
+    "p95": 1.4407,
+    "mean": 0.7006
+  },
+  "worker_scaling": {
+    "1_workers_ms": {
+      "p50": 31.9508,
+      "p95": 252.5267,
+      "mean": 73.1583
+    },
+    "2_workers_ms": {
+      "p50": 31.0919,
+      "p95": 54.2258,
+      "mean": 35.5204
+    },
+    "3_workers_ms": {
+      "p50": 34.7221,
+      "p95": 55.0721,
+      "mean": 38.814
+    }
+  },
+  "topology_comparison": {
+    "sequential_wall_time_ms": 127.1,
+    "parallel_wall_time_ms": 67.12,
+    "parallel_speedup": 1.89
+  },
+  "quality_measurement": {
+    "single_agent_baseline_score": 0.49,
+    "competition_winner_score": 0.9415,
+    "quality_improvement_pct": 92.14
+  },
+  "memory_usage": {
+    "ram_delta_kb": 5951.96,
+    "peak_ram_kb": 5974.46
+  }
+}

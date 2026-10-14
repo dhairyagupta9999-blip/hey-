@@ -1,0 +1,13 @@
+{
+  "launch_latency_ms": 2144.65,
+  "launch_success": true,
+  "navigation_latency_ms": 1037.69,
+  "navigation_success": false,
+  "tab_open_latency_ms": 17.04,
+  "form_fill_latency_ms": 20.29,
+  "screenshot_latency_ms": 11.37,
+  "screenshot_success": true,
+  "process_rss_start_mb": 23.32,
+  "process_rss_end_mb": 24.16,
+  "process_rss_delta_mb": 0.84
+}

@@ -1,0 +1,37 @@
+{
+  "benchmarks": {
+    "dpi_init_and_scaling": {
+      "p50_ms": 0.0037,
+      "p95_ms": 0.009
+    },
+    "safe_focus_verification": {
+      "p50_ms": 0.0061,
+      "p95_ms": 0.0081
+    },
+    "clipboard_rw_cycle": {
+      "p50_ms": 1.3574,
+      "p95_ms": 2.9618
+    },
+    "semantic_control_resolution": {
+      "p50_ms": 0.0287,
+      "p95_ms": 0.0515
+    },
+    "e2e_semantic_action_with_wal": {
+      "p50_ms": 85.3673,
+      "p95_ms": 204.5445
+    },
+    "e2e_set_value_with_undo_reg": {
+      "p50_ms": 82.7937,
+      "p95_ms": 116.8833
+    },
+    "phase12_find_ui_element": {
+      "p50_ms": 0.0044,
+      "p95_ms": 0.022
+    }
+  },
+  "memory": {
+    "ram_before_mb": 28.54,
+    "ram_after_mb": 32.4,
+    "ram_delta_mb": 3.86
+  }
+}

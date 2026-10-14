@@ -1,0 +1,39 @@
+.venv/
+.venv-agents/
+.venv-recon/
+recon_models/
+__pycache__/
+.env
+cache/
+*.wav
+!assets/sounds/*.wav
+*.mp3
+*.docx
+*.log
+.DS_Store
+build/
+dist/
+.eggs/
+assets/icon.iconset/
+vocabulary.json
+timers.json
+settings.json
+test_clips/
+benchmark_stt_results.json
+test_cache.json
+*.onnx
+.pytest_cache/
+*.db
+*.sqlite
+*.sqlite3
+data/
+node_modules/
+.coverage
+htmlcov/
+
+# Third-party MCP server binary (sbroenne/mcp-windows, MIT, ~57 MB).
+# Vendored under its OWN licence and never redistributed here. Drop it in to
+# enable Windows UI automation; see mcp/README.md.
+mcp/*.exe
+mcp/*.dll
+mcp/*.zip

@@ -1,0 +1,38 @@
+{
+  "jev": {
+    "backend": "jev",
+    "samples": 105,
+    "accuracy_category_pct": 96.19,
+    "accuracy_compound_pct": 100.0,
+    "accuracy_target_pct": 94.29,
+    "overall_accuracy_pct": 96.83,
+    "latency_min_ms": 888.0,
+    "latency_mean_ms": 1088.7,
+    "latency_p50_ms": 1040.0,
+    "latency_p90_ms": 1293.0,
+    "latency_p95_ms": 1458.2,
+    "latency_max_ms": 1953.0,
+    "ram_start_mb": 45.0,
+    "ram_peak_mb": 45.3,
+    "ram_delta_mb": 0.3,
+    "avg_cost_per_turn_usd": 5.6e-05
+  },
+  "laya": {
+    "backend": "laya",
+    "samples": 105,
+    "accuracy_category_pct": 72.38,
+    "accuracy_compound_pct": 59.05,
+    "accuracy_target_pct": 56.19,
+    "overall_accuracy_pct": 62.54,
+    "latency_min_ms": 16341.0,
+    "latency_mean_ms": 19665.0,
+    "latency_p50_ms": 18844.0,
+    "latency_p90_ms": 23192.8,
+    "latency_p95_ms": 24973.0,
+    "latency_max_ms": 28559.0,
+    "ram_start_mb": 1855.7,
+    "ram_peak_mb": 1855.7,
+    "ram_delta_mb": 0.0,
+    "avg_cost_per_turn_usd": 0.0
+  }
+}

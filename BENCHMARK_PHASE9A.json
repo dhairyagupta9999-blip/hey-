@@ -1,0 +1,82 @@
+{
+  "cold_load_ms": 4340,
+  "warmup_ms": 474,
+  "configs": {
+    "Config A (Baseline)": {
+      "avg_wer_pct": 26.38888888888889,
+      "kw_acc_pct": 79.6875,
+      "cmd_acc_pct": 60.0,
+      "exact_matches": 18,
+      "total_clips": 30,
+      "median_lat_ms": 1189,
+      "p95_lat_ms": 1927,
+      "false_jev_insertions": 0,
+      "silence_1s_hallucination": "",
+      "silence_3s_hallucination": "",
+      "one_word_outputs": {
+        "Spotify": "Spotify",
+        "Notepad": "Notepad",
+        "stop": "Stop.",
+        "yes": "Yes.",
+        "cancel": "Cancel."
+      }
+    },
+    "Config B (Prompt only)": {
+      "avg_wer_pct": 21.88888888888889,
+      "kw_acc_pct": 81.25,
+      "cmd_acc_pct": 60.0,
+      "exact_matches": 18,
+      "total_clips": 30,
+      "median_lat_ms": 1053,
+      "p95_lat_ms": 1132,
+      "false_jev_insertions": 1,
+      "silence_1s_hallucination": "",
+      "silence_3s_hallucination": "",
+      "one_word_outputs": {
+        "Spotify": "Spotify.",
+        "Notepad": "Notepad.",
+        "stop": "Stop.",
+        "yes": "Yes.",
+        "cancel": "Cancel."
+      }
+    },
+    "Config C (Hotwords only)": {
+      "avg_wer_pct": 25.944444444444443,
+      "kw_acc_pct": 76.5625,
+      "cmd_acc_pct": 50.0,
+      "exact_matches": 15,
+      "total_clips": 30,
+      "median_lat_ms": 1126,
+      "p95_lat_ms": 3441,
+      "false_jev_insertions": 0,
+      "silence_1s_hallucination": "",
+      "silence_3s_hallucination": "",
+      "one_word_outputs": {
+        "Spotify": "Spotify",
+        "Notepad": "Notepad",
+        "stop": "Stop",
+        "yes": "Yes",
+        "cancel": "Cancel"
+      }
+    },
+    "Config D (Prompt + Hotwords)": {
+      "avg_wer_pct": 22.72222222222222,
+      "kw_acc_pct": 78.125,
+      "cmd_acc_pct": 56.666666666666664,
+      "exact_matches": 17,
+      "total_clips": 30,
+      "median_lat_ms": 1068,
+      "p95_lat_ms": 2022,
+      "false_jev_insertions": 1,
+      "silence_1s_hallucination": "",
+      "silence_3s_hallucination": "",
+      "one_word_outputs": {
+        "Spotify": "Spotify",
+        "Notepad": "Notepad",
+        "stop": "Stop",
+        "yes": "Yes",
+        "cancel": "Cancel"
+      }
+    }
+  }
+}

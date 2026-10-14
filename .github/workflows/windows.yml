@@ -1,0 +1,94 @@
+name: windows
+
+# Phase 31 §5.4. The suite previously ran only when a human remembered
+# (20,501 test lines, no .github/ directory at all).
+#
+# Tier split follows the plan's taxonomy (§5.2):
+#   behavioral - real execution, real observation, latency bounds -> Windows only
+#   contract   - interfaces, data shapes, config validation      -> any OS
+#   unit       - pure logic, risk tiers, parsing, scoring        -> any OS
+#
+# Hardware-dependent tests xfail rather than skip, so an absent capability can
+# never masquerade as a pass.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  schedule:
+    # Nightly, 03:17 UTC. Off the hour on purpose: every scheduled GitHub
+    # workflow fires at :00 and the queue is thinnest a few minutes later.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: contract + unit
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt || pip install -r requirements-ci.txt
+          pip install pytest pytest-timeout
+
+      - name: Download speech models
+        run: python setup_assets.py --download --yes
+
+      - name: Contract tier
+        run: pytest tests/contract -q --timeout=300
+
+      - name: Legacy suite
+        run: pytest . -q --timeout=600 --ignore=tests
+
+  behavioral:
+    name: behavioral (real Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt || pip install -r requirements-ci.txt
+          pip install pytest pytest-timeout
+
+      - name: Download speech models
+        run: python setup_assets.py --download --yes
+
+      - name: Preflight (hardware truth)
+        continue-on-error: true
+        run: python preflight.py
+
+      # Runs as its own invocation on purpose. The legacy suite calls
+      # resolve_tier2("refresh apps"), which rebuilds the app_index singleton
+      # in-process; sharing an interpreter lets one tier observe state another
+      # left behind and produces flakes unrelated to the code under test.
+      - name: Behavioral tier
+        run: pytest tests/behavioral -q --timeout=600 -rsx
+
+      - name: Baseline harness
+        continue-on-error: true
+        run: python benchmarks/run_baseline.py
+
+      - name: Upload baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-windows
+          path: benchmarks/baseline_windows.json
+          if-no-files-found: ignore

@@ -1,0 +1,21 @@
+# CI-only dependency set.
+#
+# requirements.txt is the full runtime set and includes `winsdk>=1.0.0b10`, a
+# beta shim that frequently fails to resolve on newer interpreters. The CI
+# workflow tries requirements.txt first and falls back to this file, so a
+# winsdk resolution failure cannot block every test run.
+#
+# Missing the audio/ML stack is intentional: the behavioral tier stubs
+# faster-whisper / Kokoro / openWakeWord because §4.0 measures from text
+# transcripts and excludes STT. Tests that need real audio xfail rather than
+# skip.
+
+requests>=2.32
+python-dotenv>=1.0
+numpy>=2.0
+psutil>=5.9.0
+rapidfuzz>=3.0
+pywin32>=306
+send2trash>=1.8
+pytest>=8.0
+pytest-timeout>=2.3

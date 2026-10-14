@@ -1,0 +1,79 @@
+{
+  "timestamp": 1791350914.9389858,
+  "phase": "17",
+  "task_registration": {
+    "count": 50,
+    "metrics_ms": {
+      "min": 11.4568,
+      "p50": 14.0659,
+      "p95": 21.6146,
+      "p99": 28.6524,
+      "max": 28.6524,
+      "mean": 15.588
+    }
+  },
+  "scheduler_step": {
+    "iterations": 100,
+    "metrics_ms": {
+      "min": 0.0083,
+      "p50": 0.0091,
+      "p95": 0.0199,
+      "p99": 0.1005,
+      "max": 0.1005,
+      "mean": 0.0109
+    }
+  },
+  "event_rule_engine": {
+    "evaluations": 100,
+    "metrics_ms": {
+      "min": 1.0368,
+      "p50": 1.1296,
+      "p95": 2.5543,
+      "p99": 15.6739,
+      "max": 15.6739,
+      "mean": 1.3877
+    }
+  },
+  "change_detector": {
+    "dict_diff_ms": {
+      "min": 0.2826,
+      "p50": 0.3155,
+      "p95": 0.6254,
+      "p99": 0.7681,
+      "max": 0.7681,
+      "mean": 0.3455
+    },
+    "text_diff_ms": {
+      "min": 9.4317,
+      "p50": 11.321,
+      "p95": 13.894,
+      "p99": 15.4807,
+      "max": 15.4807,
+      "mean": 11.3461
+    }
+  },
+  "resource_governor": {
+    "slot_acquire_ms": {
+      "min": 0.0438,
+      "p50": 0.0486,
+      "p95": 0.0693,
+      "p99": 213.9668,
+      "max": 213.9668,
+      "mean": 2.1888
+    },
+    "voice_preemption_toggle_ms": {
+      "min": 0.0082,
+      "p50": 0.0088,
+      "p95": 0.0107,
+      "p99": 0.0471,
+      "max": 0.0471,
+      "mean": 0.0096
+    }
+  },
+  "memory_usage": {
+    "start_kb": 0.0,
+    "end_kb": 1574.33,
+    "delta_kb": 1574.33,
+    "peak_kb": 1595.48
+  }
+}

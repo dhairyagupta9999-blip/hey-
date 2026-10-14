@@ -1,0 +1,138 @@
+{
+  "schema": "heyjev.baseline/1",
+  "produced_by": "benchmarks/run_baseline.py",
+  "phase": "31 \u00a74.0",
+  "platform": {
+    "system": "Windows",
+    "release": "10",
+    "machine": "AMD64",
+    "python": "3.12.4"
+  },
+  "method": {
+    "repeats_per_command": 3,
+    "statistic": "median of repeats",
+    "input": "text transcripts (no microphone; STT excluded by design)",
+    "remote_call_instrumentation": "backend.get_backend().decide is wrapped with a counter",
+    "stubbed_modules": [
+      "kokoro_onnx",
+      "openwakeword",
+      "openwakeword.model",
+      "faster_whisper"
+    ]
+  },
+  "app_index": {
+    "entries": 284,
+    "build_ms": 2.5
+  },
+  "commands": [
+    {
+      "command": "open calculator",
+      "tier_used": "tier2_local",
+      "is_tier2_direct_match": true,
+      "resolve_status": "done",
+      "resolve_action": "app_open",
+      "resolved_app": "Calculator",
+      "reaches_remote_battery": false,
+      "remote_calls_observed": 0,
+      "wall_clock_ms_median": 6.16,
+      "wall_clock_ms_min": 6.09,
+      "wall_clock_ms_max": 32.92,
+      "samples": 3
+    },
+    {
+      "command": "open spotify",
+      "tier_used": "tier1_remote_battery",
+      "is_tier2_direct_match": false,
+      "resolve_status": "done",
+      "resolve_action": "system_website",
+      "resolved_app": null,
+      "reaches_remote_battery": true,
+      "remote_calls_observed": 0,
+      "wall_clock_ms_median": 645.95,
+      "wall_clock_ms_min": 570.62,
+      "wall_clock_ms_max": 1741.3,
+      "samples": 3
+    },
+    {
+      "command": "set volume to 50",
+      "tier_used": "tier1_remote_battery",
+      "is_tier2_direct_match": false,
+      "resolve_status": null,
+      "resolve_action": null,
+      "resolved_app": null,
+      "reaches_remote_battery": true,
+      "remote_calls_observed": 0,
+      "wall_clock_ms_median": 0.19,
+      "wall_clock_ms_min": 0.19,
+      "wall_clock_ms_max": 0.24,
+      "samples": 3
+    },
+    {
+      "command": "pause",
+      "tier_used": "tier1_remote_battery",
+      "is_tier2_direct_match": false,
+      "resolve_status": null,
+      "resolve_action": null,
+      "resolved_app": null,
+      "reaches_remote_battery": true,
+      "remote_calls_observed": 0,
+      "wall_clock_ms_median": 0.16,
+      "wall_clock_ms_min": 0.16,
+      "wall_clock_ms_max": 0.17,
+      "samples": 3
+    },
+    {
+      "command": "open youtube",
+      "tier_used": "tier2_local",
+      "is_tier2_direct_match": true,
+      "resolve_status": "done",
+      "resolve_action": "system_website",
+      "resolved_app": null,
+      "reaches_remote_battery": false,
+      "remote_calls_observed": 0,
+      "wall_clock_ms_median": 298.96,
+      "wall_clock_ms_min": 189.21,
+      "wall_clock_ms_max": 2775.47,
+      "samples": 3
+    },
+    {
+      "command": "open youtube in chrome",
+      "tier_used": "tier2_local",
+      "is_tier2_direct_match": true,
+      "resolve_status": "ambiguous",
+      "resolve_action": "clarify_app",
+      "resolved_app": null,
+      "reaches_remote_battery": false,
+      "remote_calls_observed": 0,
+      "wall_clock_ms_median": 25.77,
+      "wall_clock_ms_min": 25.12,
+      "wall_clock_ms_max": 31.26,
+      "samples": 3
+    }
+  ],
+  "not_measured": [
+    {
+      "metric": "remote_battery_roundtrip_ms",
+      "reason": "TYPESAFE_API_KEY not configured; the paid TypeSafe call cannot be issued from this machine.",
+      "affects": [
+        "open spotify",
+        "set volume to 50",
+        "pause"
+      ],
+      "note": "The plan's ~1200 ms figure is therefore UNVERIFIED on this hardware. Do not treat it as measured."
+    },
+    {
+      "metric": "utterance_end_to_first_audible_ms",
+      "reason": "Default TTS is Fish Audio (hosted, key-required) and no microphone capture was used; STT is excluded by design because \u00a74.0 feeds text transcripts.",
+      "affects": [
+        "open calculator",
+        "open spotify",
+        "set volume to 50",
+        "pause",
+        "open youtube",
+        "open youtube in chrome"
+      ],
+      "note": "Phase 32 (\u00a77.1) owns this metric."
+    }
+  ]
+}

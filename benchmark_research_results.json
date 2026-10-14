@@ -1,0 +1,14 @@
+{
+  "hotel_research_cold_ms": 3.68,
+  "hotel_sources_count": 3,
+  "hotel_facts_count": 2,
+  "hotel_research_cached_ms": 0.7,
+  "cache_speedup_factor": 5.29,
+  "laptop_comparison_ms": 5.69,
+  "doc_lookup_ms": 4.41,
+  "contradiction_scan_100_claims_ms": 1.65,
+  "detected_contradictions_count": 50,
+  "process_rss_start_mb": 23.33,
+  "process_rss_end_mb": 23.49,
+  "process_rss_delta_mb": 0.16
+}

@@ -1,0 +1,18 @@
+{
+  "spotify": "Spotify",
+  "slack": "Slack",
+  "chrome": "Google Chrome",
+  "brave": "Brave Browser",
+  "vscode": {"app": "Visual Studio Code", "say": "VS Code", "heard_as": ["this code", "vs code", "v s code", "visual studio code"]},
+  "whatsapp": "WhatsApp",
+  "mail": "Mail",
+  "calendar": "Calendar",
+  "terminal": "Terminal",
+  "zoom": {"app": "zoom.us", "say": "Zoom"},
+  "cursor": "Cursor",
+  "mimestream": {"app": "Mimestream", "heard_as": ["mime stream", "mind stream", "mimestream", "mine stream"]},
+  "discord": "Discord",
+  "notion": "Notion",
+  "claude_code": {"app": "Claude", "say": "Claude Code",
+                  "heard_as": ["cloud code", "clawed code", "clod code", "claud code", "clawd code", "cloud coat", "claude coat", "clawed coat", "cloud cold"]}
+}
