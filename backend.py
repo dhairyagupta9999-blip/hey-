@@ -87,6 +87,91 @@ class JevBackend(DecisionBackend):
         return ans, latency_ms, cost
 
 
+class OpenRouterBackend(DecisionBackend):
+    """OpenAI-compatible decision backend (OpenRouter default). No TypeSafe dependency."""
+    name: str = "openrouter"
+    default_gate: float = 0.65
+    def __init__(self, model=None, api_key=None, base_url=None):
+        self.model = model or os.getenv("HEYJEV_DECISION_MODEL", "openrouter/free")
+        self.api_key = api_key or get_secret("OPENROUTER_API_KEY")
+        self.url = base_url or os.getenv("HEYJEV_DECISION_URL",
+                                       "https://openrouter.ai/api/v1/chat/completions")
+    def decide(self, questions, utterance):
+        def _norm(v, default="none", allowed=None):
+            if v is None: v=default
+            v=str(v).lower()
+            if allowed is not None and v not in allowed:
+                return (default,0.85)
+            return (v,0.85)
+        allowed = {
+            "target":{"app","volume","display","media","system","timer","browser","none"},
+            "app_action":{"open","quit","hide","minimise","focus","none"},
+            "browser_action":{"new_tab","open_site","none"},
+            "volume_action":{"up","down","mute","unmute","set","none"},
+            "volume_scope":{"spotify","system"},
+            "volume_level":{"silent","quiet","medium","loud","max","none"},
+            "display_action":{"dark_on","dark_off","toggle","none"},
+            "media_action":{"play","pause","next","previous","none"},
+            "timer_action":{"set","check","cancel","none"},
+            "system_action":{"lock","sleep","none"},
+        }
+        try:
+            from siri import APPS
+            app_list=", ".join(list(APPS.keys())[:80])
+        except Exception:
+            app_list="spotify, chrome, notepad, calculator"
+        system_prompt=("Voice command classifier. Respond ONLY JSON. Required keys: "
+            "category,compound,target,app,app_action,browser_action,volume_action,"
+            "volume_scope,volume_level,display_action,media_action,timer_action,system_action. "
+            "category in [mac_command,information_request,chit_chat,unclear]. "
+            "target in [app,volume,display,media,system,timer,browser,none]. "
+            "app_action in [open,quit,hide,minimise,focus,none]. browser_action in [new_tab,open_site,none]. "
+            "volume_action in [up,down,mute,unmute,set,none]. volume_scope in [spotify,system]. "
+            "volume_level in [silent,quiet,medium,loud,max,none]. display_action in [dark_on,dark_off,toggle,none]. "
+            "media_action in [play,pause,next,previous,none]. timer_action in [set,check,cancel,none]. "
+            "system_action in [lock,sleep,none]. compound bool. Unknown -> none. Apps: "+app_list)
+        import requests, json, time
+        t0=time.perf_counter()
+        if not self.api_key:
+            raise RuntimeError("Missing OPENROUTER_API_KEY")
+        payload={
+            "model":self.model,
+            "messages":[{"role":"system","content":system_prompt},
+                        {"role":"user","content":str(utterance)}],
+            "temperature":0.0,
+            "response_format":{"type":"json_object"},
+        }
+        headers={"Authorization":"Bearer "+self.api_key,"Content-Type":"application/json",
+                 "HTTP-Referer":"https://github.com/dhairyagupta9999-blip/hey-","X-Title":"Hey Jev"}
+        resp=requests.post(self.url,json=payload,headers=headers,timeout=20.0)
+        resp.raise_for_status()
+        raw=resp.json()["choices"][0]["message"]["content"].strip()
+        if raw.startswith("```"):
+            raw=raw.split("```")[-1].strip()
+            if raw.lower().startswith("json"): raw=raw[4:].strip()
+        obj=json.loads(raw)
+        cat=str(obj.get("category","mac_command")).lower()
+        if cat not in ("mac_command","information_request","chit_chat","unclear"):
+            cat="unclear"
+        compound=bool(obj.get("compound",False))
+        ans={}
+        ans["category"]=(cat,0.85)
+        ans["compound"]=[compound,0.9]
+        tval=str(obj.get("target","none")).lower()
+        if tval not in allowed["target"]:
+            tval="none"
+        ans["target"]=(tval,0.85)
+        ans["app"]=(str(obj.get("app","none")).lower(),0.85)
+        for k in ["app_action","browser_action","volume_action","volume_scope","volume_level",
+                 "display_action","media_action","timer_action","system_action"]:
+            ans[k]=_norm(obj.get(k,"none"), "none", allowed.get(k))
+        if ans["volume_scope"][0] not in ("spotify","system"):
+            ans["volume_scope"]=("system",0.85)
+        ms=int((time.perf_counter()-t0)*1000)
+        is_free= (":free" in self.model.lower()) or ("free" in self.model.lower().split("/")[-1])
+        cost=0.0 if is_free else 0.0002
+        # not needed if no external signal; still let caller decide cost actually
+        return ans,ms,cost
 class LayaBackend(DecisionBackend):
     """Local open-weight Laya decision backend running non-autoregressively on CPU."""
     name: str = "laya"
@@ -202,7 +287,8 @@ class LayaBackend(DecisionBackend):
 # Singleton backends
 _BACKENDS = {
     "jev": JevBackend(),
-    "laya": LayaBackend()
+    "laya": LayaBackend(),
+    "openrouter": OpenRouterBackend()
 }
 
 class FallbackSlowError(RuntimeError):
@@ -501,8 +587,16 @@ def get_shared_backend() -> FallbackBackend:
 
 
 def get_backend(name: Optional[str] = None) -> DecisionBackend:
-    """Resolve active decision backend by name or HEYJEV_BACKEND env var (default 'jev')."""
-    chosen = (name or os.getenv("HEYJEV_BACKEND", "jev")).lower().strip()
+    """Resolve active decision backend by name or auto-detect."""
+    chosen = (name or os.getenv("HEYJEV_BACKEND", "")).lower().strip()
+    if not chosen:
+        if get_secret("TYPESAFE_API_KEY"):
+            chosen = "jev"
+        elif get_secret("OPENROUTER_API_KEY"):
+            print("[backend] Using OpenRouter (free routing) as primary decision backend.")
+            chosen = "openrouter"
+        else:
+            chosen = "jev"
     if chosen not in _BACKENDS:
         print(f"[warning] Unknown backend {chosen!r}, falling back to 'jev'")
         chosen = "jev"

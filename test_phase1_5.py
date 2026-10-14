@@ -41,7 +41,9 @@ class TestDecisionBackendAbstraction(unittest.TestCase):
             if "HEYJEV_BACKEND" in os.environ:
                 del os.environ["HEYJEV_BACKEND"]
             backend = get_backend()
-            self.assertEqual(backend.name, "jev")
+            from secrets_store import get_secret
+            expected = "openrouter" if get_secret("OPENROUTER_API_KEY") else "jev"
+            self.assertEqual(backend.name, expected)
         finally:
             if old_env:
                 os.environ["HEYJEV_BACKEND"] = old_env
