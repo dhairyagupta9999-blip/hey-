@@ -7,7 +7,7 @@ load_dotenv()  # so a .env works from the app bundle too, not just the terminal
 
 SERVICE = "com.jevsiri.keys"
 KEY_NAMES = ("TYPESAFE_API_KEY", "FISH_AUDIO_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY", "OPENCODE_ZEN_API_KEY")
-OPTIONAL = ("OPENAI_API_KEY", "OPENCODE_ZEN_API_KEY")  # optional providers / dictation
+OPTIONAL = ("OPENAI_API_KEY", "OPENCODE_ZEN_API_KEY", "TYPESAFE_API_KEY", "FISH_AUDIO_API_KEY")  # optional providers / dictation / TTS
 
 
 def credential_manager_value(name):
