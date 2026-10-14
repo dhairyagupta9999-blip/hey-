@@ -365,11 +365,17 @@ class WindowsComputerAdapter(AgentAdapter):
                 summary=f"Application launch failed for {app_name}",
             )
 
-        # 2. Close if requested in goal
+        # 2. Close if requested in goal.
+        # Close verification is retried (poll) rather than sampled once:
+        # the OS can take >0.5s to tear down a window, and a single snapshot
+        # would flap between SUCCESS and FAILURE on identical inputs.
         if "close" in goal_lower:
-            closed = self.tools.close_application(app_name)
-            time.sleep(0.5)
+            self.tools.close_application(app_name)
             win_after = self.tools.find_window(app_name)
+            deadline = time.monotonic() + 3.0
+            while win_after is not None and time.monotonic() < deadline:
+                time.sleep(0.25)
+                win_after = self.tools.find_window(app_name)
             verified = (win_after is None)
             return AgentResult(
                 result={"app": app_name, "lifecycle": "opened_and_closed", "closed_verified": verified},
